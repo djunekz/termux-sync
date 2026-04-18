@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Strip leading 'v' to match changelog format
+          VERSION_BARE="${VERSION#v}"
+
+          # Extract the block for this version from CHANGELOG.md
+          NOTES=$(awk "/^## \[${VERSION_BARE}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+
+          if [[ -z "$NOTES" ]]; then
+            NOTES="See CHANGELOG.md for details."
+          fi
+
+          # Write to file to avoid shell escaping issues
+          echo "$NOTES" > release_notes.txt
+
+      - name: Build release archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="termux-sync-${VERSION}.tar.gz"
+
+          tar -czf "$ARCHIVE" \
+            termux-sync.py \
+            install.sh \
+            tsctl \
+            README.md \
+            LICENSE \
+            CHANGELOG.md
+
+          echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+        id: archive
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.version }}
+          body_path: release_notes.txt
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: |
+            termux-sync-${{ steps.version.outputs.version }}.tar.gz
+            termux-sync-${{ steps.version.outputs.version }}.tar.gz.sha256

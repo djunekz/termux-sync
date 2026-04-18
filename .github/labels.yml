@@ -1,0 +1,79 @@
+- name: bug
+  color: "d73a4a"
+  description: Something is not working correctly
+
+- name: enhancement
+  color: "a2eeef"
+  description: New feature or improvement request
+
+- name: documentation
+  color: "0075ca"
+  description: Improvements or additions to documentation
+
+- name: question
+  color: "d876e3"
+  description: Further information is requested
+
+- name: good first issue
+  color: "7057ff"
+  description: A good starting point for first-time contributors
+
+- name: help wanted
+  color: "008672"
+  description: Extra attention or assistance is needed
+
+- name: stale
+  color: "ededed"
+  description: No activity for an extended period
+
+- name: invalid
+  color: "e4e669"
+  description: Does not appear to be a valid issue
+
+- name: wontfix
+  color: "ffffff"
+  description: This issue or request will not be addressed
+
+- name: duplicate
+  color: "cfd3d7"
+  description: This issue or pull request already exists
+
+- name: security
+  color: "e11d48"
+  description: Security-related issue or fix
+
+- name: in-progress
+  color: "f97316"
+  description: Work is actively in progress
+
+- name: pinned
+  color: "0ea5e9"
+  description: Pinned issue, exempt from stale checks
+
+- name: backend:local
+  color: "bbf7d0"
+  description: Related to local filesystem storage
+
+- name: backend:gdrive
+  color: "bbf7d0"
+  description: Related to Google Drive storage via rclone
+
+- name: backend:github
+  color: "bbf7d0"
+  description: Related to GitHub repository storage
+
+- name: component:backup
+  color: "e0e7ff"
+  description: Related to the backup command or logic
+
+- name: component:restore
+  color: "e0e7ff"
+  description: Related to the restore command or logic
+
+- name: component:tsctl
+  color: "e0e7ff"
+  description: Related to the tsctl control tool
+
+- name: component:scheduler
+  color: "e0e7ff"
+  description: Related to auto-backup scheduling or daemon

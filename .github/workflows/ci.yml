@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linting tools
+        run: pip install flake8 pylint
+
+      - name: Run flake8
+        run: |
+          flake8 termux-sync.py \
+            --max-line-length=120 \
+            --ignore=E501,W503
+
+      - name: Run pylint
+        run: |
+          pylint termux-sync.py \
+            --disable=C0114,C0115,C0116,R0903,W0611 \
+            --max-line-length=120
+        continue-on-error: true
+
+  lint-shell:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on install.sh
+        run: shellcheck install.sh
+
+      - name: Run shellcheck on tsctl
+        run: shellcheck tsctl
+
+  syntax-check:
+    name: Python Syntax Check
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Check syntax
+        run: python -m py_compile termux-sync.py && echo "Syntax OK"
+
+      - name: Install dependencies
+        run: pip install rich
+
+      - name: Check imports
+        run: python -c "import ast; ast.parse(open('termux-sync.py').read()); print('AST parse OK')"
