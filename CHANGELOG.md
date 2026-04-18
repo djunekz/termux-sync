@@ -19,7 +19,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [1.0.0] - 2026-04-16
+## [0.1.0] - 2026-04-18
 
 Initial public release.
 
