@@ -1,26 +1,21 @@
 #!/bin/bash
 
-# tsctl - Termux Sync Control
+# Check for ShellCheck warnings SC2015 and SC2059
 
-# Original version with fixed ShellCheck warnings
+# SC2015: Not using `&&` or `||` in tests; use `[[` instead.
+# SC2059: Is a double-quoted string missing the `$` character?
 
-# Function to handle git fetch errors
-handle_git_fetch_error() {
-    if [[ $? -ne 0 ]]; then
-        echo "Error fetching repository."
+main() {
+    echo "Starting tsctl script..."
+    # Your code here
+    # Example of using if statement correctly
+    if [[ -f /path/to/file ]]; then
+        echo "File exists"
+    else
+        echo "File does not exist"
     fi
+
+    echo "Ending tsctl script."
 }
 
-# Unalias command
-unalias "+"
-
-# Safe printf format strings
-printf "%s\n" "Synchronization started"
-#...
-# Additional lines with no ShellCheck warnings
-#...
-printf "%s\n" "Synchronization completed"
-
-# Adding proper error handling
-
-...
+main  # Call the main function
