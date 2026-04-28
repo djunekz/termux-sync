@@ -18,8 +18,10 @@ termux-sync captures your installed packages, home directory, and configuration 
 | Full restore | Archive extraction and package reinstallation in one command |
 | Local storage | Save backups on-device or to any mounted path |
 | Google Drive | Upload and retrieve via rclone |
-| GitHub private repo | Push and pull using a Personal Access Token |
+| GitHub private repo | Push and pull using a Personal Access Token (200 MB per part) |
 | Auto-backup | Built-in daily scheduler at a configurable time |
+| Disk check | View storage usage for any path with per-folder breakdown |
+| Cache cleaner | Interactive two-step confirmation before removing cache |
 | Checksum verification | SHA-256 integrity check performed on every restore |
 | Rich terminal UI | Colored progress bars, tables, and status panels |
 | Persistent logging | Full log written to `~/.config/termux-sync/sync.log` |
@@ -49,7 +51,9 @@ Optional dependencies depending on which storage backend you use:
 `tsctl` is the control tool that handles installation, updates, and removal. It clones the repository to a stable location and sets up the `termux-sync` command system-wide.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/djunekz/termux-sync/main/tsctl | bash -s install
+curl -fsSL https://raw.githubusercontent.com/djunekz/termux-sync/main/tsctl -o tsctl
+chmod +x tsctl
+bash tsctl install
 ```
 
 > After installation, you can run `termux-sync` from anywhere
@@ -131,6 +135,23 @@ termux-sync status
 termux-sync logs
 termux-sync logs --lines 100
 ```
+
+### Check disk usage
+```bash
+termux-sync check                              # overview: Termux root, ~, $PREFIX
+termux-sync check ~                            # home directory + subfolder breakdown
+termux-sync check $PREFIX                      # $PREFIX + subfolder breakdown
+termux-sync check /data/data/com.termux/files  # custom path
+```
+
+### Clear cache
+```bash
+termux-sync clear-cache
+```
+
+Removes: `$PREFIX/tmp`, `~/.cache`, `~/.npm`, `~/.cargo/registry`, `~/.cargo/git`
+
+> Two confirmation prompts before anything is deleted.
 
 ---
 
@@ -242,7 +263,9 @@ termux-sync backup --label "migration"
 
 Download and run tsctl
 ```bash
-curl -fsSL https://raw.githubusercontent.com/djunekz/termux-sync/main/tsctl | bash -s install
+curl -fsSL https://raw.githubusercontent.com/djunekz/termux-sync/main/tsctl -o tsctl
+chmod +x tsctl
+bash tsctl install
 ```
 
 Run setup with the same credentials as the old device
@@ -269,6 +292,8 @@ The restore process will verify checksums, extract the archives, and reinstall a
 | Restore overwrites wrong path | Check the `source` field in the backup's `manifest.json` |
 | `termux-sync: command not found` | Run `tsctl install` or re-run `install.sh` |
 | Daemon does not start on boot | Verify that Termux:Boot is installed and has permission to run |
+| GitHub upload fails on large backup | Default chunk is 200 MB per part — add paths to `exclude_patterns` to reduce size |
+| Cache not cleared | Run `termux-sync clear-cache` and confirm both prompts |
 
 ---
 
@@ -276,9 +301,9 @@ The restore process will verify checksums, extract the archives, and reinstall a
 
 ```
 termux-sync/
-├── termux-sync.py    Main application (backup, restore, schedule, daemon)
+├── termux-sync.py    Main application (backup, restore, schedule, daemon, check, clear-cache)
 ├── install.sh        Local installer for manual setup
-├── tsctl             Control tool (install, update, uninstall via git clone)
+├── tsctl             Control tool (install, updater, uninstall, status via git clone)
 └── README.md         This file
 ```
 

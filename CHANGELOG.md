@@ -11,7 +11,6 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Planned
 
-- Single installation using pypi `pip install termux-sync`
 - Archive encryption using a user-provided password
 - Selective restore (restore individual components instead of the full backup)
 - Backup rotation by date in addition to count-based pruning
@@ -19,7 +18,33 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.1.0] - 2026-04-18
+## [1.1.0] - 2026-04-28
+
+### Added
+
+- `termux-sync check` — disk usage overview for Termux root, `~`, and `$PREFIX`; accepts an optional path argument (`check ~`, `check $PREFIX`, `check /custom/path`) with per-subfolder size breakdown
+- `termux-sync clear-cache` — interactive cache cleaner with two confirmation prompts before removing `$PREFIX/tmp`, `~/.cache`, `~/.npm`, `~/.cargo/registry`, and `~/.cargo/git`
+- `tsctl status` — show current installation status (script path, launcher, config directory, commit hash)
+- PyPI packaging support — `termux-sync` can now be installed via `pip install termux-sync` using the new `pyproject.toml`
+- GitHub Actions workflows: `ci.yml`, `codeql.yml`, `dependabot.yml`, `release-pypi.yml`
+- Automated PyPI publish on GitHub release via OIDC trusted publishing
+
+### Changed
+
+- GitHub storage chunk size increased from 20 MB to 200 MB per part, reducing the number of split files for large backups
+- `_write_daemon_script()` now resolves the script path dynamically using `__file__` instead of a hardcoded path — fixes daemon boot script when installed via `tsctl`
+- `tsctl install` now purges stale `termux-sync` aliases from `.bashrc` / `.zshrc` before writing the launcher, preventing conflicts with previous installations
+- `tsctl` shell configuration step no longer adds an alias — the `$PREFIX/bin` launcher is sufficient
+
+### Fixed
+
+- `termux-sync check` previously reported total Android filesystem size instead of Termux directory sizes
+- Stale alias from a previous install overriding the correct launcher in active shell sessions
+- Daemon boot script pointing to hardcoded development path (`~/files/project/termux-sync/termux-sync.py`)
+
+---
+
+## [1.0.0] - 2026-04-18
 
 Initial public release.
 
