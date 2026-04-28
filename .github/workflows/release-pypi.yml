@@ -37,7 +37,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/termux-sync
     permissions:
-      id-token: write
+      id-token: write  # OIDC trusted publishing — no API key needed
 
     steps:
       - name: Download dist artifacts
@@ -70,5 +70,4 @@ jobs:
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://upload.pypi.org/legacy/
           repository-url: https://test.pypi.org/legacy/

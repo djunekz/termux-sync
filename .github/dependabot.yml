@@ -1,6 +1,7 @@
 version: 2
 
 updates:
+  # Python dependencies (pip)
   - package-ecosystem: pip
     directory: "/"
     schedule:
@@ -18,6 +19,7 @@ updates:
       - dependency-name: "rich"
         update-types: ["version-update:semver-major"]
 
+  # GitHub Actions
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

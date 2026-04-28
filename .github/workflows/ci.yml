@@ -26,7 +26,7 @@ jobs:
         run: python -m py_compile src/termux_sync/__init__.py
 
       - name: Lint with ruff
-        run: ruff check src/termux_sync/ --select E,F,W --ignore E501
+        run: ruff check src/termux_sync/ --select E,F,W --ignore E501 --target-version py38
         continue-on-error: true
 
   test:
@@ -46,6 +46,7 @@ jobs:
 
       - name: Install package
         run: |
+          pip install hatchling
           pip install -e .
 
       - name: Test import
