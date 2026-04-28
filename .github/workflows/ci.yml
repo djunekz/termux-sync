@@ -26,7 +26,7 @@ jobs:
         run: python -m py_compile src/termux_sync/__init__.py
 
       - name: Lint with ruff
-        run: ruff check src/termux_sync/ --select E,F,W --ignore E501 --target-version py38
+        run: ruff check src/termux_sync/ --select E,F,W --ignore E501 --target-version py39
         continue-on-error: true
 
   test:
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.10", "3.13"]
+        python-version: ["3.9", "3.10", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
