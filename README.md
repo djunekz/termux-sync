@@ -46,7 +46,15 @@ Optional dependencies depending on which storage backend you use:
 
 ## Installation
 
-### Option 1 — tsctl (recommended)
+### Option 1 — Auto (pypi)
+```bash
+pip install rich
+pip install termux-sync
+```
+
+> After installation, you can run `termux-sync` from anywhere
+
+### Option 2 — tsctl (recommended)
 
 `tsctl` is the control tool that handles installation, updates, and removal. It clones the repository to a stable location and sets up the `termux-sync` command system-wide.
 
@@ -58,7 +66,7 @@ bash tsctl install
 
 > After installation, you can run `termux-sync` from anywhere
 
-### Option 2 — Manual (git clone)
+### Option 3 — Manual (git clone)
 
 ```bash
 pkg install python python-pip
