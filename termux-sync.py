@@ -964,31 +964,26 @@ def cmd_list(cfg: dict):
         console.print("  [yellow]No backups found.[/yellow]")
         return
 
-    table = Table(
-        box=box.DOUBLE_EDGE,
-        show_header=True,
-        header_style="bold cyan",
-        padding=(0, 2),
-        title=f"[bold yellow]  {len(backups)} Backup(s) Found  [/bold yellow]",
-    )
-    table.add_column("#",         style="dim",         width=4)
-    table.add_column("Backup Name",style="bold white",  min_width=32)
-    table.add_column("Date",       style="green",       min_width=19)
-    table.add_column("Label",      style="yellow")
-    table.add_column("Packages",   style="cyan",        justify="right")
-    table.add_column("Files",      style="magenta",     justify="right")
+    console.print(f"  [bold yellow]{len(backups)} Backup(s) Found[/bold yellow]\n")
 
     for i, b in enumerate(backups, 1):
-        table.add_row(
-            str(i),
-            b.get("name", "—"),
-            b.get("date", "—")[:19].replace("T", " "),
-            b.get("label", "") or "—",
-            str(len(b.get("packages", []))),
-            str(len(b.get("files", {}))),
+        tbl = Table(
+            box=box.ROUNDED,
+            show_header=False,
+            padding=(0, 2),
+            title=f"[bold white]Files Backup - {i}[/bold white]",
         )
+        tbl.add_column("Key",   style="dim cyan",  min_width=20)
+        tbl.add_column("Value", style="bold white")
 
-    console.print(table)
+        tbl.add_row("Name",     b.get("name", "—"))
+        tbl.add_row("Date",     b.get("date", "—")[:19].replace("T", " "))
+        tbl.add_row("Label",    b.get("label", "") or "—")
+        tbl.add_row("Packages", str(len(b.get("packages", []))))
+        tbl.add_row("Files",    str(len(b.get("files", {}))))
+
+        console.print(tbl)
+        console.print()
 
 
 def cmd_setup():
