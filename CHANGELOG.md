@@ -18,6 +18,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.1] - 2026-04-30
+
+### Added
+
+- Support installing with pypi `pip install termux-sync`
+
+### Fixed
+
+- Banner no longer appears on every command — it now shows only on `help`, `setup`, and `schedule` (interactive menus); all other commands (`backup`, `restore`, `list`, `status`, `logs`, `check`, `clear-cache`) proceed directly to output without the banner
+
+---
+
 ## [1.1.0] - 2026-04-28
 
 ### Added

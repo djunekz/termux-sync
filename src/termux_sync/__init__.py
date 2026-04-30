@@ -43,7 +43,7 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-VERSION       = "1.1.0"
+VERSION       = "1.1.1"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -683,7 +683,6 @@ def get_storage(cfg: dict):
 
 
 def cmd_backup(cfg: dict, label: str = ""):
-    print_banner()
     print_section("BACKUP", "Creating a full snapshot of your Termux environment")
 
     timestamp   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -807,7 +806,6 @@ def cmd_backup(cfg: dict, label: str = ""):
 
 
 def cmd_restore(cfg: dict, backup_name: str = ""):
-    print_banner()
     print_section("RESTORE", "Restoring your Termux environment from a backup")
 
     storage = get_storage(cfg)
@@ -954,7 +952,6 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
 
 
 def cmd_list(cfg: dict):
-    print_banner()
     print_section("BACKUP LIST", f"Storage: {cfg['storage'].upper()}")
 
     storage = get_storage(cfg)
@@ -964,31 +961,26 @@ def cmd_list(cfg: dict):
         console.print("  [yellow]No backups found.[/yellow]")
         return
 
-    table = Table(
-        box=box.DOUBLE_EDGE,
-        show_header=True,
-        header_style="bold cyan",
-        padding=(0, 2),
-        title=f"[bold yellow]  {len(backups)} Backup(s) Found  [/bold yellow]",
-    )
-    table.add_column("#",         style="dim",         width=4)
-    table.add_column("Backup Name",style="bold white",  min_width=32)
-    table.add_column("Date",       style="green",       min_width=19)
-    table.add_column("Label",      style="yellow")
-    table.add_column("Packages",   style="cyan",        justify="right")
-    table.add_column("Files",      style="magenta",     justify="right")
+    console.print(f"  [bold yellow]{len(backups)} Backup(s) Found[/bold yellow]\n")
 
     for i, b in enumerate(backups, 1):
-        table.add_row(
-            str(i),
-            b.get("name", "—"),
-            b.get("date", "—")[:19].replace("T", " "),
-            b.get("label", "") or "—",
-            str(len(b.get("packages", []))),
-            str(len(b.get("files", {}))),
+        tbl = Table(
+            box=box.ROUNDED,
+            show_header=False,
+            padding=(0, 2),
+            title=f"[bold white]Files Backup - {i}[/bold white]",
         )
+        tbl.add_column("Key",   style="dim cyan",  min_width=20)
+        tbl.add_column("Value", style="bold white")
 
-    console.print(table)
+        tbl.add_row("Name",     b.get("name", "—"))
+        tbl.add_row("Date",     b.get("date", "—")[:19].replace("T", " "))
+        tbl.add_row("Label",    b.get("label", "") or "—")
+        tbl.add_row("Packages", str(len(b.get("packages", []))))
+        tbl.add_row("Files",    str(len(b.get("files", {}))))
+
+        console.print(tbl)
+        console.print()
 
 
 def cmd_setup():
@@ -1149,7 +1141,6 @@ def cmd_daemon(cfg: dict):
 
 
 def cmd_status(cfg: dict):
-    print_banner()
     print_section("STATUS", "Current configuration and environment")
 
     sched = load_schedule()
@@ -1200,7 +1191,6 @@ def cmd_status(cfg: dict):
 
 
 def cmd_logs(lines: int = 40):
-    print_banner()
     print_section("LOGS", str(LOG_FILE))
     if not LOG_FILE.exists():
         console.print("  [dim]No log file yet.[/dim]")
@@ -1242,7 +1232,6 @@ def _pct_bar(part: int, total: int, width: int = 24) -> str:
 
 
 def cmd_check(target: str = ""):
-    print_banner()
     print_section("DISK CHECK", "Storage usage overview")
 
     PREFIX      = Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr"))
@@ -1350,7 +1339,6 @@ CACHE_TARGETS = [
 
 
 def cmd_clear_cache():
-    print_banner()
     print_section("CLEAR CACHE", "Remove temporary and cached files")
 
     existing = []

@@ -43,7 +43,7 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-VERSION       = "1.1.0"
+VERSION       = "1.1.1"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -683,7 +683,6 @@ def get_storage(cfg: dict):
 
 
 def cmd_backup(cfg: dict, label: str = ""):
-    print_banner()
     print_section("BACKUP", "Creating a full snapshot of your Termux environment")
 
     timestamp   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -807,7 +806,6 @@ def cmd_backup(cfg: dict, label: str = ""):
 
 
 def cmd_restore(cfg: dict, backup_name: str = ""):
-    print_banner()
     print_section("RESTORE", "Restoring your Termux environment from a backup")
 
     storage = get_storage(cfg)
@@ -954,7 +952,6 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
 
 
 def cmd_list(cfg: dict):
-    print_banner()
     print_section("BACKUP LIST", f"Storage: {cfg['storage'].upper()}")
 
     storage = get_storage(cfg)
@@ -1144,7 +1141,6 @@ def cmd_daemon(cfg: dict):
 
 
 def cmd_status(cfg: dict):
-    print_banner()
     print_section("STATUS", "Current configuration and environment")
 
     sched = load_schedule()
@@ -1195,7 +1191,6 @@ def cmd_status(cfg: dict):
 
 
 def cmd_logs(lines: int = 40):
-    print_banner()
     print_section("LOGS", str(LOG_FILE))
     if not LOG_FILE.exists():
         console.print("  [dim]No log file yet.[/dim]")
@@ -1237,7 +1232,6 @@ def _pct_bar(part: int, total: int, width: int = 24) -> str:
 
 
 def cmd_check(target: str = ""):
-    print_banner()
     print_section("DISK CHECK", "Storage usage overview")
 
     PREFIX      = Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr"))
@@ -1345,7 +1339,6 @@ CACHE_TARGETS = [
 
 
 def cmd_clear_cache():
-    print_banner()
     print_section("CLEAR CACHE", "Remove temporary and cached files")
 
     existing = []
