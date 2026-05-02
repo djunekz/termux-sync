@@ -1,0 +1,78 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[feat] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to termux-sync.
+        The more detail you provide, the easier it is to evaluate and implement the request.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which area of termux-sync does this relate to?
+      options:
+        - Backup
+        - Restore
+        - Storage backend (local / gdrive / github)
+        - Scheduler / daemon
+        - CLI commands (check, clear-cache, status, logs, etc.)
+        - tsctl (install / updater / uninstall)
+        - Configuration (config.json)
+        - PyPI / packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Limitation
+      description: What are you trying to do that termux-sync does not currently support?
+      placeholder: "e.g. There is no way to restore only the home directory without reinstalling all packages."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the behavior you want to see. Be specific about commands, flags, config keys, or UI changes.
+      placeholder: |
+        e.g. Add a --component flag to `termux-sync restore`:
+          termux-sync restore --component home
+          termux-sync restore --component packages
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you found any workarounds? Why are they insufficient?
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any references, prior art, screenshots, or examples that help clarify the request.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues and this has not been requested before
+          required: true
+        - label: This feature is specific to termux-sync and not a general Termux or Android limitation
+          required: false

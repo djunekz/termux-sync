@@ -1,0 +1,26 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Read the FAQ
+    url: https://github.com/djunekz/termux-sync/blob/main/FAQ.md
+    about: Check the FAQ before opening an issue — your question may already be answered.
+
+  - name: Read the README
+    url: https://github.com/djunekz/termux-sync/blob/main/README.md
+    about: Setup guide, command reference, configuration options, and troubleshooting.
+
+  - name: Read the Changelog
+    url: https://github.com/djunekz/termux-sync/blob/main/CHANGELOG.md
+    about: See what changed in each release.
+
+  - name: Security Vulnerability
+    url: https://github.com/djunekz/termux-sync/blob/main/SECURITY.md
+    about: Do not open a public issue for security vulnerabilities. Follow the security policy instead.
+
+  - name: Discussions — Questions & Ideas
+    url: https://github.com/djunekz/termux-sync/discussions
+    about: Not a bug or feature request? Start a discussion for questions, ideas, or general feedback.
+
+  - name: Contributing Guide
+    url: https://github.com/djunekz/termux-sync/blob/main/CONTRIBUTING.md
+    about: Want to contribute? Read the contributing guide before opening a pull request.

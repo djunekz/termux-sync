@@ -1,0 +1,136 @@
+name: Bug Report
+description: Report something that is not working correctly
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        Please fill in as much detail as possible — incomplete reports are harder to diagnose.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect to happen?
+      placeholder: "e.g. Running `termux-sync backup` exits immediately with no output after selecting GitHub storage."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Provide the exact steps to reproduce the issue.
+      placeholder: |
+        1. Run `termux-sync setup` and select GitHub storage
+        2. Run `termux-sync backup`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: command_output
+    attributes:
+      label: Command and Output
+      description: Paste the exact command you ran and the full terminal output.
+      render: shell
+      placeholder: |
+        $ termux-sync backup
+        ...output here...
+    validations:
+      required: true
+
+  - type: textarea
+    id: log_output
+    attributes:
+      label: Log Output
+      description: Run `termux-sync logs --lines 50` and paste the relevant lines here.
+      render: shell
+      placeholder: |
+        $ termux-sync logs --lines 50
+        ...log output here...
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: termux-sync version
+      description: Run `termux-sync --version`
+      placeholder: "e.g. v1.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: Run `python --version`
+      placeholder: "e.g. Python 3.13.1"
+    validations:
+      required: true
+
+  - type: input
+    id: termux_version
+    attributes:
+      label: Termux version
+      description: Run `termux-info` or `pkg show termux-tools`
+      placeholder: "e.g. 0.118.1"
+    validations:
+      required: false
+
+  - type: input
+    id: android_version
+    attributes:
+      label: Android version
+      placeholder: "e.g. Android 14"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: storage_backend
+    attributes:
+      label: Storage backend in use
+      options:
+        - local
+        - gdrive (Google Drive via rclone)
+        - github (GitHub private repo)
+        - not configured yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Installation method
+      options:
+        - tsctl install
+        - install.sh (manual)
+        - pip install termux-sync
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that might be relevant — recent setup changes, network conditions, storage provider errors, etc.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues and this is not a duplicate
+          required: true
+        - label: I have included the full command output and log output
+          required: true
+        - label: I am using the latest version of termux-sync
+          required: false
