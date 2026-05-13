@@ -26,7 +26,7 @@ jobs:
       - name: Extract changelog entry
         id: changelog
         run: |
-          VERSION="Termux Sync ${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           # Strip leading 'v' to match changelog format
           VERSION_BARE="${VERSION#v}"
 
@@ -60,7 +60,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: ${{ steps.version.outputs.version }}
+          name: Termux Sync ${{ steps.version.outputs.version }}
           body_path: release_notes.txt
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
