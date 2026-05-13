@@ -1,19 +1,20 @@
 #!/data/data/com.termux/files/usr/bin/bash
-
+# ============================================================
 #  tsctl — termux-sync Control Tool
-#  Manages install, uninstall, and update for termux-sync
 #  https://github.com/djunekz/termux-sync
 #  Open Source — MIT License
+# ============================================================
 
 set -euo pipefail
 
-REPO_URL="https://github.com/djunekz/termux-sync.git"
-REPO_RAW="https://raw.githubusercontent.com/djunekz/termux-sync/main/termux-sync.py"
+OFFICIAL_OWNER="djunekz"
+OFFICIAL_REPO="termux-sync"
+RELEASE_API="https://api.github.com/repos/${OFFICIAL_OWNER}/${OFFICIAL_REPO}/releases/latest"
 INSTALL_DIR="$PREFIX/lib/termux-sync"
 SCRIPT="$INSTALL_DIR/termux-sync.py"
 CMD="$PREFIX/bin/termux-sync"
 CONFIG_DIR="$HOME/.config/termux-sync"
-TSCTL_CMD="$PREFIX/bin/tsctl"
+VERSION_FILE="$INSTALL_DIR/.version"
 
 R='\033[0;31m'
 G='\033[0;32m'
@@ -37,10 +38,7 @@ EOF
 }
 
 STEP=0
-step()  {
-    STEP=$((STEP + 1))
-    printf "\n${C}[%d]${N} ${B}%s${N}\n" "$STEP" "$*"
-}
+step()  { STEP=$((STEP + 1)); printf "\n${C}[%d]${N} ${B}%s${N}\n" "$STEP" "$*"; }
 ok()    { printf "     ${G}OK${N}   %s\n" "$*"; }
 warn()  { printf "     ${Y}WARN${N} %s\n" "$*"; }
 fail()  { printf "\n     ${R}FAIL${N} %s\n\n" "$*"; exit 1; }
@@ -52,12 +50,143 @@ print_banner() {
     banner
     printf "${N}"
     printf "  ${B}tsctl${N}  ${D}termux-sync Control Tool${N}\n"
-    printf "  ${D}https://github.com/djunekz/termux-sync${N}\n\n"
+    printf "  ${D}https://github.com/${OFFICIAL_OWNER}/${OFFICIAL_REPO}${N}\n\n"
     hr
+}
+
+guard_official() {
+    if [[ "$OFFICIAL_OWNER" != "djunekz" || "$OFFICIAL_REPO" != "termux-sync" ]]; then
+        printf "\n  ${R}${B}SECURITY WARNING${N}\n\n"
+        printf "  ${R}Unofficial source detected!${N}\n"
+        printf "  ${D}Expected : djunekz/termux-sync${N}\n"
+        printf "  ${D}Got      : ${OFFICIAL_OWNER}/${OFFICIAL_REPO}${N}\n\n"
+        printf "  ${Y}Only the official repository is supported.${N}\n"
+        printf "  ${Y}Get the original script from:${N}\n"
+        printf "  ${C}https://github.com/djunekz/termux-sync${N}\n\n"
+        exit 1
+    fi
+}
+
+fetch_release_info() {
+    local response http_code body
+
+    response=$(curl -sS \
+        -H "Accept: application/vnd.github+json" \
+        -w "\n%{http_code}" \
+        "$RELEASE_API" 2>&1) \
+        || fail "Cannot reach GitHub API. Check your internet connection."
+
+    http_code=$(printf '%s' "$response" | tail -1)
+    body=$(printf '%s' "$response" | head -n -1)
+
+    if [[ "$http_code" == "404" ]]; then
+        printf "\n  ${R}${B}Repository not found (HTTP 404)${N}\n\n"
+        printf "  ${R}Cannot find:${N} ${OFFICIAL_OWNER}/${OFFICIAL_REPO}\n\n"
+        printf "  ${Y}This repository does not exist or has no releases.${N}\n"
+        printf "  ${Y}Only the official source is supported:${N}\n"
+        printf "  ${C}https://github.com/djunekz/termux-sync${N}\n\n"
+        exit 1
+    fi
+
+    if [[ "$http_code" != "200" ]]; then
+        fail "GitHub API returned HTTP $http_code. Check your internet connection."
+    fi
+
+    printf '%s' "$body"
+}
+
+get_release_tag() {
+    echo "$1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name',''))"
+}
+
+get_tarball_url() {
+    echo "$1" | python3 -c "
+import sys, json, re
+data = json.load(sys.stdin)
+for a in data.get('assets', []):
+    if re.match(r'termux-sync-v[\d.]+\.tar\.gz$', a['name']):
+        print(a['browser_download_url'])
+        sys.exit(0)
+url = data.get('tarball_url', '')
+print(url)
+"
+}
+
+get_sha_url() {
+    echo "$1" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for a in data.get('assets', []):
+    if a['name'].endswith('.sha256') or a['name'] == 'SHA256SUMS':
+        print(a['browser_download_url'])
+        sys.exit(0)
+print('')
+"
+}
+
+download_release() {
+    local release_json="$1"
+    local dest_script="$2"
+
+    local tag
+    tag=$(get_release_tag "$release_json")
+    local tarball_url
+    tarball_url=$(get_tarball_url "$release_json")
+    local sha_url
+    sha_url=$(get_sha_url "$release_json")
+
+    [[ -z "$tarball_url" ]] && fail "Could not find release tarball for $tag"
+
+    local TMP_DIR
+    TMP_DIR=$(mktemp -d)
+    _tmp="$TMP_DIR"
+    trap 'rm -rf "$_tmp"' RETURN
+
+    local TARBALL="$TMP_DIR/termux-sync.tar.gz"
+
+    info "Tag     : $tag"
+    info "Tarball : $tarball_url"
+
+    curl -fsSL "$tarball_url" -o "$TARBALL" \
+        || fail "Failed to download release tarball"
+    ok "Tarball downloaded"
+
+    if [[ -n "$sha_url" ]]; then
+        local SHA_FILE="$TMP_DIR/termux-sync.tar.gz.sha256"
+        curl -fsSL "$sha_url" -o "$SHA_FILE" 2>/dev/null || true
+        if [[ -f "$SHA_FILE" ]]; then
+            local expected actual
+            expected=$(awk '{print $1}' "$SHA_FILE")
+            actual=$(sha256sum "$TARBALL" | awk '{print $1}')
+            if [[ "$actual" != "$expected" ]]; then
+                printf "\n  ${R}${B}Checksum verification FAILED.${N}\n\n"
+                printf "  ${R}Expected:${N} %s\n" "$expected"
+                printf "  ${R}Got:     ${N} %s\n" "$actual"
+                printf "\n  ${Y}The downloaded file may be tampered or corrupted.${N}\n\n"
+                exit 1
+            fi
+            ok "SHA256 verified"
+        else
+            warn "No SHA256 file found in release — skipping checksum verification"
+        fi
+    else
+        warn "No SHA256 asset in release — skipping checksum verification"
+    fi
+
+    local extracted
+    extracted=$(tar -tzf "$TARBALL" | grep -E '(^|/)termux-sync\.py$' | head -1)
+    [[ -z "$extracted" ]] && fail "termux-sync.py not found inside tarball"
+
+    tar -xzf "$TARBALL" -C "$TMP_DIR" "$extracted" 2>/dev/null \
+        || fail "Failed to extract termux-sync.py from tarball"
+
+    cp "$TMP_DIR/$extracted" "$dest_script"
+    ok "termux-sync.py extracted and installed"
 }
 
 cmd_install() {
     print_banner
+    guard_official
 
     if [[ -f "$SCRIPT" ]]; then
         warn "termux-sync is already installed at $INSTALL_DIR"
@@ -66,48 +195,32 @@ cmd_install() {
     fi
 
     step "Updating package lists"
-    if pkg update -y -q 2>/dev/null; then
-        ok "Package lists updated"
-    else
-        warn "Could not update package lists (continuing)"
-    fi
+    pkg update -y -q 2>/dev/null && ok "Package lists updated" \
+        || warn "Could not update package lists (continuing)"
 
     step "Installing Python"
-    if pkg install -y python python-pip 2>/dev/null; then
-        PY_VER=$(python --version 2>&1 | awk '{print $2}')
-        ok "Python $PY_VER"
-    else
-        fail "Failed to install Python"
-    fi
+    pkg install -y python python-pip 2>/dev/null || fail "Failed to install Python"
+    ok "Python $(python --version 2>&1 | awk '{print $2}')"
 
-    step "Installing git"
-    if pkg install -y git 2>/dev/null; then
-        ok "git $(git --version | awk '{print $3}')"
-    else
-        fail "Failed to install git"
-    fi
+    step "Installing curl"
+    pkg install -y curl 2>/dev/null && ok "curl ready" \
+        || fail "Failed to install curl"
 
     step "Installing Python dependencies"
-    for dep in rich; do
-        if pip install --quiet "$dep" 2>/dev/null; then
-            ok "$dep"
-        else
-            fail "Failed to install $dep"
-        fi
-    done
+    pip install --quiet rich 2>/dev/null && ok "rich" \
+        || fail "Failed to install rich"
 
-    step "Cloning termux-sync"
-    info "Destination: $INSTALL_DIR"
-    rm -rf "$INSTALL_DIR"
-    if git clone --depth=1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null; then
-        ok "Cloned to $INSTALL_DIR"
-    else
-        fail "Failed to clone $REPO_URL"
-    fi
+    step "Fetching latest release"
+    RELEASE_JSON=$(fetch_release_info)
+    RELEASE_TAG=$(get_release_tag "$RELEASE_JSON")
+    [[ -z "$RELEASE_TAG" ]] && fail "Could not determine latest release tag"
+    ok "Latest release: $RELEASE_TAG"
 
-    step "Setting permissions"
+    step "Downloading and verifying release"
+    mkdir -p "$INSTALL_DIR"
+    download_release "$RELEASE_JSON" "$SCRIPT"
+    echo "$RELEASE_TAG" > "$VERSION_FILE"
     chmod +x "$SCRIPT"
-    ok "termux-sync.py is executable"
 
     step "Installing termux-sync command"
     rm -f "$CMD"
@@ -119,14 +232,14 @@ cmd_install() {
     for RC in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"; do
         if [[ -f "$RC" ]] && grep -q "termux.sync\|termux_sync" "$RC" 2>/dev/null; then
             sed -i '/termux.sync\|termux_sync/d' "$RC"
-            ok "Cleaned stale alias from $(basename "$RC")"
+            ok "Cleaned $(basename "$RC")"
         fi
     done
     info "No alias added — use the 'termux-sync' command directly"
 
     printf "\n"
     hr
-    printf "\n  ${G}${B}termux-sync installed successfully!${N}\n\n"
+    printf "\n  ${G}${B}termux-sync ${RELEASE_TAG} installed successfully!${N}\n\n"
     printf "  ${D}First-time setup:${N}\n"
     printf "    ${C}termux-sync setup${N}\n\n"
     printf "  ${D}Create a backup:${N}\n"
@@ -139,24 +252,22 @@ cmd_install() {
 
 cmd_updater() {
     print_banner
+    guard_official
 
-    if [[ ! -d "$INSTALL_DIR" ]]; then
-        fail "termux-sync is not installed. Run: tsctl install"
-    fi
+    [[ ! -f "$SCRIPT" ]] && fail "termux-sync is not installed. Run: tsctl install"
 
-    step "Checking for updates"
+    step "Checking installed version"
+    LOCAL_VER=$(cat "$VERSION_FILE" 2>/dev/null || echo "unknown")
+    info "Installed: $LOCAL_VER"
 
-    LOCAL_HASH=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
-    info "Local  : $LOCAL_HASH"
+    step "Fetching latest release"
+    RELEASE_JSON=$(fetch_release_info)
+    LATEST_TAG=$(get_release_tag "$RELEASE_JSON")
+    [[ -z "$LATEST_TAG" ]] && fail "Could not determine latest release tag"
+    info "Latest   : $LATEST_TAG"
 
-    git -C "$INSTALL_DIR" fetch origin --quiet 2>/dev/null || fail "Could not reach GitHub. Check your internet connection."
-
-    REMOTE_HASH=$(git -C "$INSTALL_DIR" rev-parse origin/HEAD 2>/dev/null || \
-                  git -C "$INSTALL_DIR" rev-parse origin/main 2>/dev/null || echo "unknown")
-    info "Remote : $REMOTE_HASH"
-
-    if [[ "$LOCAL_HASH" == "$REMOTE_HASH" ]]; then
-        ok "Already up to date"
+    if [[ "$LOCAL_VER" == "$LATEST_TAG" ]]; then
+        ok "Already up to date ($LATEST_TAG)"
         printf "\n"
         hr
         printf "\n  ${G}${B}termux-sync is up to date.${N}\n\n"
@@ -165,36 +276,20 @@ cmd_updater() {
         exit 0
     fi
 
-    step "Changes in termux-sync.py"
-    CHANGED_FILES=$(git -C "$INSTALL_DIR" diff --name-only HEAD origin/HEAD 2>/dev/null || true)
-    if echo "$CHANGED_FILES" | grep -q "termux-sync.py"; then
-        ok "termux-sync.py has been updated"
-    else
-        info "No changes in termux-sync.py"
-        warn "Other files changed — updating anyway"
-    fi
-
-    step "Pulling updates"
-    if git -C "$INSTALL_DIR" pull origin --quiet 2>/dev/null; then
-        NEW_HASH=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null)
-        ok "Updated to $NEW_HASH"
-    else
-        fail "Failed to pull updates"
-    fi
-
-    step "Re-setting permissions"
+    step "Downloading and verifying update"
+    download_release "$RELEASE_JSON" "$SCRIPT"
+    echo "$LATEST_TAG" > "$VERSION_FILE"
     chmod +x "$SCRIPT"
-    ok "termux-sync.py is executable"
 
     step "Refreshing launcher"
     rm -f "$CMD"
     printf '#!/data/data/com.termux/files/usr/bin/bash\nexec python "%s" "$@"\n' "$SCRIPT" > "$CMD"
     chmod +x "$CMD"
-    ok "Launcher refreshed at $CMD"
+    ok "Launcher refreshed"
 
     printf "\n"
     hr
-    printf "\n  ${G}${B}termux-sync updated successfully!${N}\n\n"
+    printf "\n  ${G}${B}termux-sync updated: ${LOCAL_VER} → ${LATEST_TAG}${N}\n\n"
     hr
     printf "\n"
 }
@@ -210,36 +305,21 @@ cmd_uninstall() {
     printf "    ${D}·${N} Shell aliases in .bashrc / .zshrc\n\n"
     printf "  ${B}Continue? [y/N]${N} "
     read -r CONFIRM
-    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-        printf "\n  Aborted.\n\n"
-        exit 0
-    fi
+    [[ ! "$CONFIRM" =~ ^[Yy]$ ]] && { printf "\n  Aborted.\n\n"; exit 0; }
 
     printf "\n"
 
     step "Removing launcher"
-    if [[ -f "$CMD" ]]; then
-        rm -f "$CMD"
-        ok "Removed $CMD"
-    else
-        info "Launcher not found, skipping"
-    fi
+    [[ -f "$CMD" ]] && { rm -f "$CMD"; ok "Removed $CMD"; } \
+        || info "Launcher not found, skipping"
 
     step "Removing install directory"
-    if [[ -d "$INSTALL_DIR" ]]; then
-        rm -rf "$INSTALL_DIR"
-        ok "Removed $INSTALL_DIR"
-    else
-        info "Install directory not found, skipping"
-    fi
+    [[ -d "$INSTALL_DIR" ]] && { rm -rf "$INSTALL_DIR"; ok "Removed $INSTALL_DIR"; } \
+        || info "Install directory not found, skipping"
 
     step "Removing config"
-    if [[ -d "$CONFIG_DIR" ]]; then
-        rm -rf "$CONFIG_DIR"
-        ok "Removed $CONFIG_DIR"
-    else
-        info "Config directory not found, skipping"
-    fi
+    [[ -d "$CONFIG_DIR" ]] && { rm -rf "$CONFIG_DIR"; ok "Removed $CONFIG_DIR"; } \
+        || info "Config directory not found, skipping"
 
     step "Cleaning shell aliases"
     for RC in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"; do
@@ -250,7 +330,8 @@ cmd_uninstall() {
     done
 
     step "Removing alias from current session"
-    unalias termux-sync 2>/dev/null && ok "Unaliased termux-sync" || info "No active alias found"
+    unalias termux-sync 2>/dev/null && ok "Unaliased termux-sync" \
+        || info "No active alias found"
 
     printf "\n"
     hr
@@ -265,24 +346,21 @@ cmd_status() {
     printf "  ${B}Installation Status${N}\n\n"
 
     if [[ -f "$SCRIPT" ]]; then
+        LOCAL_VER=$(cat "$VERSION_FILE" 2>/dev/null || echo "unknown")
         printf "  ${G}●${N} termux-sync.py   ${D}$SCRIPT${N}\n"
-        HASH=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        printf "  ${G}●${N} version          ${D}$HASH${N}\n"
+        printf "  ${G}●${N} version          ${D}$LOCAL_VER${N}\n"
+        printf "  ${G}●${N} source           ${D}github.com/${OFFICIAL_OWNER}/${OFFICIAL_REPO}/releases${N}\n"
     else
         printf "  ${R}●${N} termux-sync      ${D}not installed${N}\n"
     fi
 
-    if [[ -f "$CMD" ]]; then
-        printf "  ${G}●${N} launcher         ${D}$CMD${N}\n"
-    else
-        printf "  ${R}●${N} launcher         ${D}not found${N}\n"
-    fi
+    [[ -f "$CMD" ]] \
+        && printf "  ${G}●${N} launcher         ${D}$CMD${N}\n" \
+        || printf "  ${R}●${N} launcher         ${D}not found${N}\n"
 
-    if [[ -d "$CONFIG_DIR" ]]; then
-        printf "  ${G}●${N} config           ${D}$CONFIG_DIR${N}\n"
-    else
-        printf "  ${Y}●${N} config           ${D}not found${N}\n"
-    fi
+    [[ -d "$CONFIG_DIR" ]] \
+        && printf "  ${G}●${N} config           ${D}$CONFIG_DIR${N}\n" \
+        || printf "  ${Y}●${N} config           ${D}not found${N}  ${D}(run: termux-sync setup)${N}\n"
 
     printf "\n"
     hr
@@ -292,21 +370,26 @@ cmd_status() {
 cmd_help() {
     print_banner
     printf "  ${B}Usage:${N} tsctl <command>\n\n"
-    printf "  ${C}install${N}    Install termux-sync\n"
-    printf "  ${C}uninstall${N}  Remove termux-sync\n"
-    printf "  ${C}updater${N}    Update termux-sync to the latest version\n"
+    printf "  ${C}install${N}    Download & install from official GitHub Release\n"
+    printf "  ${C}uninstall${N}  Remove termux-sync from your system\n"
+    printf "  ${C}updater${N}    Update to the latest official release\n"
     printf "  ${C}status${N}     Show installation status\n"
     printf "  ${C}help${N}       Show this help message\n\n"
+    printf "  ${D}Releases: https://github.com/${OFFICIAL_OWNER}/${OFFICIAL_REPO}/releases${N}\n\n"
     hr
     printf "\n"
 }
 
 case "${1:-help}" in
-    install)   cmd_install   ;;
-    uninstall) cmd_uninstall ;;
-    updater)   cmd_updater   ;;
-    status)    cmd_status    ;;
-    help|--help|-h) cmd_help ;;
+    install)        cmd_install   ;;
+    uninstall)      cmd_uninstall ;;
+    i)              cmd_install   ;;
+    un)             cmd_uninstall ;;
+    updater)        cmd_updater   ;;
+    update)         cmd_updater   ;;
+    up)             cmd_updater   ;;
+    status)         cmd_status    ;;
+    help|--help|-h) cmd_help      ;;
     *)
         printf "\n  ${R}Unknown command:${N} $1\n"
         printf "  Run ${C}tsctl help${N} for usage.\n\n"
