@@ -26,7 +26,7 @@ jobs:
       - name: Extract changelog entry
         id: changelog
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="Termux Sync ${{ steps.version.outputs.version }}"
           # Strip leading 'v' to match changelog format
           VERSION_BARE="${VERSION#v}"
 
