@@ -40,7 +40,7 @@ jobs:
     
     if: ${{ !contains(github.event.workflow_run.head_branch, '-') }}
     environment:
-      name: pypi
+      name: termux-sync
       url: https://pypi.org/p/termux-sync
     permissions:
       id-token: write
