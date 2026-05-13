@@ -2,9 +2,10 @@
 
 Backup and restore your entire Termux environment across devices.
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Termux](https://img.shields.io/badge/Termux-compatible-brightgreen?style=flat-square)](https://termux.dev)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue?badge.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?badge.svg)](LICENSE)
+[![Termux](https://img.shields.io/badge/Termux-compatible-brightgreen?badge.svg)](https://termux.dev)
+[![Release to PyPI](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml)
 
 termux-sync captures your installed packages, home directory, and configuration files into a portable backup that can be fully restored on any device. Backups can be stored locally, uploaded to Google Drive via rclone, or pushed to a private GitHub repository.
 
