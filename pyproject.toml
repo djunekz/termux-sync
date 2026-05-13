@@ -9,7 +9,7 @@ description = "Backup and restore your entire Termux environment across devices"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "djunekz", url = "https://github.com/djunekz" }
+    { name = "djunekz" }
 ]
 keywords = ["termux", "backup", "restore", "android", "sync"]
 classifiers = [
