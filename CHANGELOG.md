@@ -18,6 +18,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.2] - 2026-05-13
+
+### Fixed
+
+- Remove urls in authors pyproject.toml - use project.urls
+- Error _tmp in `tsctl`
+- `install.sh` - bugs sync local and release version
+- `tsctl` - verified official repo
+- `install.sh` - verified install from official repo
+
+---
+
 ## [1.1.1] - 2026-04-30
 
 ### Added
