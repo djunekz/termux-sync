@@ -18,6 +18,47 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] - 2026-05-22
+
+### Added
+
+- `termux-sync delete` — interactively list and permanently delete a specific backup; works across all three storage backends (local, Google Drive, GitHub Releases); requires double confirmation before deletion
+- `termux-sync clear-logs` — truncate the log file at `~/.config/termux-sync/sync.log` after a single confirmation prompt
+- `termux-sync export-config` — export current configuration to a JSON file with `github_token` and `encrypt_password` fields automatically redacted
+- `termux-sync import-config <file>` — import configuration from a previously exported file; REDACTED placeholder values are silently skipped so live credentials are never overwritten
+- `clear-cache` selective targeting — users can now enter a comma-separated list of cache directory numbers to clear only specific entries instead of always clearing all at once
+- Additional cache targets for `clear-cache`: `~/__pycache__`, `~/.gradle/caches`, `~/.m2/repository`, `~/go/pkg/mod/cache`
+- Backup manifest now records the `version` field (termux-sync version that created the backup)
+- `termux-sync list` now displays `Version`, `Compression`, and `Total size` columns per backup entry
+- `termux-sync status` now shows the stored backup count and path when using local storage
+- `termux-sync check` table now includes a `Location` column header so each row is clearly labelled
+- `GDriveStorage.delete_backup()` — new method to delete a single named backup folder from Google Drive via `rclone purge`
+- `GitHubStorage.delete_backup()` — new method to delete a single GitHub Release and its associated tag
+- `LocalStorage.delete_backup()` — new method to delete a single local backup directory
+
+### Fixed
+
+- **`create_archive()` — broken output path for files without double extensions** — the original `with_suffix().with_suffix()` chain produced incorrect filenames (e.g. `home.tar` instead of `home.tar.gz`). Replaced with a strip-then-append approach that correctly handles any input path.
+- **`create_archive()` — no compression validation** — if `cfg["compression"]` held an unrecognised value, `tarfile.open()` raised an obscure low-level exception. Compression is now validated against `{"gz", "bz2", "xz"}` and silently falls back to `gz` with a warning.
+- **`extract_archive()` — Python 3.12 deprecation** — `tf.extract(member, ..., set_attrs=True)` is deprecated in Python 3.12+. The fallback path now correctly uses `set_attrs=False` instead of repeating the same deprecated call.
+- **`human_size()` — float input crash** — repeated `/= 1024` inside the loop converted the value to a `float`, but the function signature typed the parameter as `int`. Added an `int()` cast at entry to prevent downstream type errors.
+- **`cmd_restore()` — `IndexError` on out-of-range backup number** — entering `0`, a negative number, or a number larger than the backup count raised an unhandled `IndexError`. The input is now validated against the list length with a user-friendly error message.
+- **`cmd_restore()` — temp directory leaked on early exit** — on manifest read failure or when the user rejected the checksum-failure prompt, the temporary download directory was left on disk. Now cleaned up on all early-return code paths.
+- **`cmd_schedule()` — crash on non-integer hour/minute input** — `int(Prompt.ask(...))` raised `ValueError` on non-numeric input. Both fields are now validated in a loop that keeps prompting until a valid value is entered.
+- **`GDriveStorage.delete_old()` — was a no-op** — the method body contained only `pass`, meaning old backups on Google Drive were never pruned regardless of the `max_backups` setting. Now correctly calls `rclone purge` on entries beyond `max_keep`.
+- **`LocalStorage.download()` — no existence check** — attempting to restore a backup that did not exist on disk would silently fail during the `iterdir()` call instead of raising a clear error. Now raises `FileNotFoundError` with the full path before any I/O is attempted.
+- **`LocalStorage.list_backups()` and `delete_old()` — unhandled `PermissionError`** — `iterdir()` could raise `PermissionError` on restricted directories. Both methods now catch the exception and return gracefully.
+- **`cmd_daemon()` — config not reloaded between scheduled runs** — the daemon captured `cfg` at startup and reused the same object for every subsequent backup cycle. Changes made via `termux-sync setup` required restarting the daemon to take effect. The daemon now calls `load_config()` before each backup run.
+- **`cmd_backup()` — archive checksum recorded against wrong filename** — when `create_archive()` corrected the output path, the caller still referenced the uncorrected `out_path` name in the manifest. The manifest now uses the path actually returned by `create_archive()`.
+- **`load_config()` — missing forward-compatibility for new keys** — configs saved by older versions lacked new default keys. `load_config()` now applies `setdefault()` for every key in `DEFAULT_CONFIG` so all fields are always present.
+
+### Changed
+
+- Version bumped from `1.1.2` → `1.2.0` in `termux-sync.py`, `src/termux_sync/__init__.py`, and `pyproject.toml`
+- `cmd_list()` backup table title changed from `Files Backup - N` to `Backup #N` for consistency
+
+---
+
 ## [1.1.2] - 2026-05-13
 
 ### Fixed
