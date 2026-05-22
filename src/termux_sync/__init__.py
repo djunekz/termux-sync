@@ -43,7 +43,7 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-VERSION       = "1.2.0"
+VERSION       = "1.2.1"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -1138,9 +1138,14 @@ def cmd_setup():
     cfg["storage"] = storage_map[choice]
 
     if cfg["storage"] == "local":
-        cfg["local_path"] = Prompt.ask(
-            "  Local backup path", default=cfg.get("local_path", str(DEFAULT_DEST))
-        )
+        while True:
+            val = Prompt.ask(
+                "  Local backup path", default=cfg.get("local_path", str(DEFAULT_DEST))
+            ).strip()
+            if val:
+                cfg["local_path"] = val
+                break
+            console.print("  [red]✗ Path cannot be empty.[/red]")
 
     elif cfg["storage"] == "gdrive":
         console.print()
@@ -1159,12 +1164,34 @@ def cmd_setup():
         )
         console.print("  [dim]Token URL:[/dim] [white]https://github.com/settings/tokens[/white]")
         console.print()
-        cfg["github_token"] = Prompt.ask(
-            "  GitHub Personal Access Token", default=cfg.get("github_token", ""), password=True
-        )
-        cfg["github_repo"] = Prompt.ask(
-            "  GitHub repo (owner/repo)", default=cfg.get("github_repo", "")
-        )
+
+        existing_token = cfg.get("github_token", "")
+        if existing_token:
+            console.print("  [dim]A token is already saved. Press Enter to keep it, or paste a new one.[/dim]")
+        while True:
+            val = Prompt.ask(
+                "  GitHub Personal Access Token",
+                default=existing_token,
+                password=True,
+            ).strip()
+            if val:
+                cfg["github_token"] = val
+                break
+            console.print("  [red]✗ Token cannot be empty. Paste your Personal Access Token.[/red]")
+
+        while True:
+            val = Prompt.ask(
+                "  GitHub repo (owner/repo)", default=cfg.get("github_repo", "")
+            ).strip()
+            if not val:
+                console.print("  [red]✗ Repo cannot be empty. Enter in format: username/repo-name[/red]")
+                continue
+            if "/" not in val or val.startswith("/") or val.endswith("/"):
+                console.print("  [red]✗ Invalid format. Use: username/repo-name  (e.g. djunekz/my-termux-backup)[/red]")
+                continue
+            cfg["github_repo"] = val
+            break
+
         cfg["github_branch"] = Prompt.ask(
             "  Branch", default=cfg.get("github_branch", "main")
         )
@@ -1757,51 +1784,54 @@ Examples:
 
     cfg = load_config()
 
-    if args.command == "setup":
-        cmd_setup()
-    elif args.command == "backup":
-        cmd_backup(cfg, label=args.label)
-    elif args.command == "restore":
-        cmd_restore(cfg, backup_name=args.name)
-    elif args.command == "list":
-        cmd_list(cfg)
-    elif args.command == "delete":
-        cmd_delete(cfg, backup_name=args.name)
-    elif args.command == "schedule":
-        cmd_schedule()
-    elif args.command == "daemon":
-        cmd_daemon(cfg)
-    elif args.command == "status":
-        cmd_status(cfg)
-    elif args.command == "logs":
-        cmd_logs(args.lines)
-    elif args.command == "clear-logs":
-        cmd_clear_logs()
-    elif args.command == "check":
-        cmd_check(args.target or "")
-    elif args.command == "clear-cache":
-        cmd_clear_cache()
-    elif args.command == "export-config":
-        cmd_export_config(args.target or "")
-    elif args.command == "import-config":
-        cmd_import_config(args.target or "")
+    try:
+        if args.command == "setup":
+            cmd_setup()
+        elif args.command == "backup":
+            cmd_backup(cfg, label=args.label)
+        elif args.command == "restore":
+            cmd_restore(cfg, backup_name=args.name)
+        elif args.command == "list":
+            cmd_list(cfg)
+        elif args.command == "delete":
+            cmd_delete(cfg, backup_name=args.name)
+        elif args.command == "schedule":
+            cmd_schedule()
+        elif args.command == "daemon":
+            cmd_daemon(cfg)
+        elif args.command == "status":
+            cmd_status(cfg)
+        elif args.command == "logs":
+            cmd_logs(args.lines)
+        elif args.command == "clear-logs":
+            cmd_clear_logs()
+        elif args.command == "check":
+            cmd_check(args.target or "")
+        elif args.command == "clear-cache":
+            cmd_clear_cache()
+        elif args.command == "export-config":
+            cmd_export_config(args.target or "")
+        elif args.command == "import-config":
+            cmd_import_config(args.target or "")
+    except KeyboardInterrupt:
+        _abort()
+
+
+def _abort():
+    console.print()
+    console.print()
+    console.print(
+        Panel(
+            "[bold yellow]Operation cancelled[/bold yellow]\n\n"
+            "  You pressed [bold]Ctrl+C[/bold] — termux-sync was stopped.\n"
+            "  [dim]Any partial temporary files have been cleaned up.[/dim]\n\n"
+            "  Run the command again whenever you're ready.",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+    )
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        console = Console()
-        console.print()
-        console.print()
-        console.print(
-            Panel(
-                "[bold yellow]Operation cancelled[/bold yellow]\n\n"
-                "  You pressed [bold]Ctrl+C[/bold] — termux-sync was stopped.\n"
-                "  [dim]Any partial temporary files have been cleaned up.[/dim]\n\n"
-                "  Run the command again whenever you're ready.",
-                border_style="yellow",
-                padding=(1, 2),
-            )
-        )
-        sys.exit(0)
+    main()
