@@ -18,6 +18,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.1] - 2026-05-22
+
+### Fixed
+
+- **`setup` — required fields accepted empty input silently** — pressing Enter on the `GitHub Personal Access Token` and `GitHub repo (owner/repo)` prompts passed through an empty string, which would later cause a crash or silent failure when actually running a backup or restore. Both fields are now validated in a loop that keeps prompting until a non-empty value is provided, with a descriptive error message on each failed attempt.
+  - `github_token`: re-prompts with `✗ Token cannot be empty. Paste your Personal Access Token.`
+  - `github_repo`: re-prompts with `✗ Invalid format. Use: username/repo-name` if empty or if the value does not contain exactly one `/` in a valid position
+  - `local_path`: re-prompts with `✗ Path cannot be empty.` if the user clears the default and submits nothing
+- **`setup` — existing token not acknowledged** — when a GitHub token was already saved in config, the password prompt showed an empty field with no indication that a value already existed. A hint line is now printed before the prompt: `A token is already saved. Press Enter to keep it, or paste a new one.`
+- **`KeyboardInterrupt` traceback instead of clean exit** — pressing Ctrl+C during any interactive prompt (e.g. `setup`, `schedule`, `restore`, `delete`) printed a full Python traceback instead of the intended cancellation panel. The root cause was that the `try/except KeyboardInterrupt` block only wrapped `main()` inside `if __name__ == "__main__"`, which is never executed when the script is invoked via a pip entry point or the tsctl launcher. The handler has been moved inside `main()` itself so it fires regardless of invocation method. The panel logic was extracted into a dedicated `_abort()` helper and `if __name__ == "__main__"` simplified to a bare `main()` call.
+
+---
+
 ## [1.2.0] - 2026-05-22
 
 ### Added
