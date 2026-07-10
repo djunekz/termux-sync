@@ -18,6 +18,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.3] - 2026-07-11
+
+### Fixed
+
+- Bump version in `termux-sync.py` and `__init__.py` for pip installer
+
+---
+
 ## [1.2.2] - 2026-07-11
 
 ### Fixed
