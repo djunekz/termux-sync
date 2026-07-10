@@ -469,6 +469,15 @@ class GitHubStorage:
             "Accept": "application/vnd.github.v3+json",
         }
 
+    def _asset_headers(self) -> dict:
+        return {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/octet-stream",
+        }
+
+    def _asset_url(self, asset_id: int) -> str:
+        return f"{self.API}/repos/{self.repo}/releases/assets/{asset_id}"
+
     def _api(self, method: str, endpoint: str, **kwargs):
         import urllib.request, urllib.error
         url  = f"{self.API}{endpoint}"
@@ -633,8 +642,8 @@ class GitHubStorage:
                     try:
                         import urllib.request
                         req = urllib.request.Request(
-                            asset["browser_download_url"],
-                            headers=self._headers()
+                            self._asset_url(asset["id"]),
+                            headers=self._asset_headers()
                         )
                         with urllib.request.urlopen(req, timeout=30) as r:
                             manifest = json.loads(r.read())
@@ -659,14 +668,14 @@ class GitHubStorage:
         dl_task = progress.add_task("[cyan]Downloading from GitHub...", total=len(assets))
 
         for asset in assets:
-            url  = asset["browser_download_url"]
+            url  = self._asset_url(asset["id"])
             out  = dest / asset["name"]
             size = asset.get("size", 0)
             f_task = progress.add_task(f"[cyan]{asset['name']}...", total=max(size, 1))
             last_err = None
             for attempt in range(8):
                 try:
-                    req = urllib.request.Request(url, headers=self._headers())
+                    req = urllib.request.Request(url, headers=self._asset_headers())
                     with urllib.request.urlopen(req, timeout=120) as r:
                         data = r.read()
                     out.write_bytes(data)
