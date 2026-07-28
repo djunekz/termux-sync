@@ -277,18 +277,62 @@ def create_archive(
     return out
 
 
+def _safe_extract_member(member: tarfile.TarInfo, dest_path: Path):
+    dest_root = dest_path.resolve()
+
+    member_name = member.name
+    if member_name.startswith("/") or member_name.startswith("\\"):
+        raise ValueError(f"Unsafe absolute path in archive: {member_name!r}")
+    if any(part == ".." for part in Path(member_name).parts):
+        raise ValueError(f"Path traversal attempt in archive: {member_name!r}")
+
+    target = (dest_path / member_name).resolve()
+    try:
+        target.relative_to(dest_root)
+    except ValueError:
+        raise ValueError(f"Archive member escapes destination: {member_name!r} -> {target}")
+
+    if member.issym() or member.islnk():
+        link_target = member.linkname
+        if os.path.isabs(link_target):
+            raise ValueError(f"Unsafe absolute link target in archive: {member_name!r} -> {link_target!r}")
+        resolved_link = (target.parent / link_target).resolve()
+        try:
+            resolved_link.relative_to(dest_root)
+        except ValueError:
+            raise ValueError(f"Archive link escapes destination: {member_name!r} -> {link_target!r}")
+
+    if member.ischr() or member.isblk() or member.isfifo():
+        raise ValueError(f"Refusing device/fifo entry in archive: {member_name!r}")
+
+
 def extract_archive(archive_path: Path, dest_path: Path, label: str, progress: Progress):
     task = progress.add_task(f"[cyan]{label}", total=None)
     dest_path.mkdir(parents=True, exist_ok=True)
+
+    has_data_filter = hasattr(tarfile, "data_filter")
+
     with tarfile.open(archive_path, "r:*") as tf:
         for member in tf.getmembers():
             try:
-                tf.extract(member, dest_path, set_attrs=True)
+                _safe_extract_member(member, dest_path)
+            except ValueError as e:
+                log("WARNING", f"Skipped unsafe archive member during restore: {e}")
+                continue
+
+            try:
+                if has_data_filter:
+                    tf.extract(member, dest_path, set_attrs=True, filter="data")
+                else:
+                    tf.extract(member, dest_path, set_attrs=True)
             except Exception:
                 try:
                     member.uid = os.getuid()
                     member.gid = os.getgid()
-                    tf.extract(member, dest_path, set_attrs=False)
+                    if has_data_filter:
+                        tf.extract(member, dest_path, set_attrs=False, filter="data")
+                    else:
+                        tf.extract(member, dest_path, set_attrs=False)
                 except Exception:
                     pass
     progress.update(task, total=1, completed=1, description=f"[green]{label} ✓")
@@ -485,7 +529,12 @@ class GitHubStorage:
         req  = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
         try:
             with urllib.request.urlopen(req) as resp:
-                return json.loads(resp.read())
+                if resp.status == 204:
+                    return {}
+                body = resp.read()
+                if not body:
+                    return {}
+                return json.loads(body)
         except urllib.error.HTTPError as e:
             body = e.read().decode()
             raise RuntimeError(f"GitHub API error {e.code}: {body}") from e
@@ -930,6 +979,12 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         except ValueError:
             backup_name = choice
 
+    safe_backup_name = os.path.basename(str(backup_name).replace("\\", "/")).strip()
+    if not safe_backup_name or safe_backup_name in (".", "..") or "/" in safe_backup_name:
+        console.print(f"  [red]✗ Invalid backup name: {backup_name!r}[/red]")
+        return
+    backup_name = safe_backup_name
+
     tmp_dir = Path(os.environ.get("TMPDIR", "/data/data/com.termux/files/usr/tmp")) / f"restore_{backup_name}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1003,9 +1058,26 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         TimeElapsedColumn(),
         console=console,
     ) as progress:
+        # Build the set of destinations this app is actually willing to restore into.
+        # Manifest-supplied "source" values are attacker-controlled backup content
+        # and must never be trusted as an extraction root — only used to double
+        # check they agree with the known-safe root for that item key.
+        allowed_roots = {}
+        for item_key, _label, item_root in BACKUP_ITEMS:
+            if item_root is not None:
+                allowed_roots[item_key] = Path(item_root).resolve().parent
+
         for key, info in manifest.get("files", {}).items():
             archive = tmp_dir / info["archive"]
-            src_dir = Path(info.get("source", str(TERMUX_FILES))).parent
+
+            src_dir = allowed_roots.get(key)
+            if src_dir is None:
+                # Unknown key not part of this app's known backup items — refuse
+                # to derive a destination from untrusted manifest content.
+                console.print(f"  [red]✗ Refusing unknown/untrusted restore target for {key!r}[/red]")
+                log("WARNING", f"Refused restore for unknown manifest key: {key!r}")
+                continue
+
             try:
                 extract_archive(archive, src_dir, info["archive"], progress)
                 log("INFO", f"Extracted {info['archive']} → {src_dir}")

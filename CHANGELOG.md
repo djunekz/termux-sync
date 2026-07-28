@@ -9,6 +9,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **`restore` — arbitrary file write via attacker-controlled `source` field in `manifest.json` (High, GHSA-259w-wmqg-fp76)** — during restore, `manifest["files"][key]["source"]` was taken from the backup archive itself (fully attacker-controlled) and used directly as the extraction destination, and `extract_archive()` called `tarfile.extract()` on every member with no path-containment check. A malicious or tampered backup could therefore write/overwrite arbitrary files anywhere the Termux user has write access, including shell startup files. Fixed by: (1) deriving the extraction destination only from the app's own known `BACKUP_ITEMS` roots instead of manifest content, refusing unknown manifest keys; (2) validating every tar member's resolved path (and symlink/hardlink targets) stays inside the destination before extraction, and rejecting device/fifo entries; (3) using Python's built-in `filter="data"` extraction filter on 3.12+; (4) sanitizing `backup_name` before it's used to build the temp restore path. Reported privately by Niranj R Mahaswar.
+
+### Fixed
+
+- **`delete` (GitHub storage) — `Failed to delete backup from GitHub: Expecting value: line 1 column 1 (char 0)`** — `GitHubStorage._api()` unconditionally called `json.loads()` on every API response, but GitHub's REST API returns `204 No Content` with an empty body for `DELETE /releases/{id}` and `DELETE /git/refs/tags/{tag}`, so the empty body failed JSON parsing and the delete was reported as failed (even when it actually succeeded on GitHub's side). `_api()` now returns `{}` for empty/204 responses instead of trying to parse them as JSON.
+
 ### Planned
 
 - Archive encryption using a user-provided password
