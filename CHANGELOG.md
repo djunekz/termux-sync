@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.2.4] - 2026-07-28
+
 ### Security
 
 - **`restore` — arbitrary file write via attacker-controlled `source` field in `manifest.json` (High, GHSA-259w-wmqg-fp76)** — during restore, `manifest["files"][key]["source"]` was taken from the backup archive itself (fully attacker-controlled) and used directly as the extraction destination, and `extract_archive()` called `tarfile.extract()` on every member with no path-containment check. A malicious or tampered backup could therefore write/overwrite arbitrary files anywhere the Termux user has write access, including shell startup files. Fixed by: (1) deriving the extraction destination only from the app's own known `BACKUP_ITEMS` roots instead of manifest content, refusing unknown manifest keys; (2) validating every tar member's resolved path (and symlink/hardlink targets) stays inside the destination before extraction, and rejecting device/fifo entries; (3) using Python's built-in `filter="data"` extraction filter on 3.12+; (4) sanitizing `backup_name` before it's used to build the temp restore path. Reported privately by [Niranj R Mahaswar](https://github.com/NiranjMahaswar).
