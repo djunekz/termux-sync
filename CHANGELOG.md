@@ -42,7 +42,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`restore` — stuck retrying and failing with `HTTP Error 404: Not Found` when the GitHub backend points to a private repo** — `GitHubStorage.download()` and the `manifest.json` lookup in `list_backups()` downloaded release assets via `asset["browser_download_url"]` using the standard `Accept: application/vnd.github.v3+json` header. That URL only resolves without further authentication for public repos; for private repos GitHub returns 404 even with a valid token, since the download must go through the `/repos/{repo}/releases/assets/{id}` API endpoint with `Accept: application/octet-stream`. Added `GitHubStorage._asset_headers()` and `_asset_url()` and switched both call sites to use them, so restoring from a private-repo backend now downloads correctly instead of exhausting all 8 retries.
+- **`restore` — stuck retrying and failing with `HTTP Error 404: Not Found` when the GitHub backend points to a private repo** — `GitHubStorage.download()` and the `manifest.json` lookup in `list_backups()` downloaded release assets via `asset["browser_download_url"]` using the standard `Accept: application/vnd.github.v3+json` header. That URL only resolves without further authentication for public repos; for private repos GitHub returns 404 even with a valid token, since the download must go through the `/repos/{repo}/releases/assets/{id}` API endpoint with `Accept: application/octet-stream`. Added `GitHubStorage._asset_headers()` and `_asset_url()` and switched both call sites to use them, so restoring from a private-repo backend now downloads correctly instead of exhausting all 8 retries. [Issues #13](https://github.com/djunekz/termux-sync/issues/13)
 
 ---
 
