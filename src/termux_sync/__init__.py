@@ -43,7 +43,7 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-VERSION       = "1.2.3"
+VERSION       = "1.2.4"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
