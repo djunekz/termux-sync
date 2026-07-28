@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "termux-sync"
-version = "1.2.3"
+version = "1.2.4"
 description = "Backup and restore your entire Termux environment across devices"
 readme = "README.md"
 license = { file = "LICENSE" }
