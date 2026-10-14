@@ -190,6 +190,8 @@ def _explain(exc: Exception) -> tuple:
     import urllib.error
     import socket
 
+    if isinstance(exc, StreamAbort):          # upload failure while streaming
+        exc = exc.original
     if isinstance(exc, UserError):
         return exc.title, exc.message, exc.hint
     if isinstance(exc, EOFError):
@@ -246,7 +248,7 @@ def handle_crash(exc: Exception):
 
     console.print()                        # leave the half-finished prompt line
     title, message, hint = _explain(exc)
-    expected = isinstance(exc, UserError)
+    expected = isinstance(getattr(exc, "original", exc), UserError)
     print_error(title, message, hint, where="" if expected and not DEBUG else _origin(exc))
 
     if DEBUG:
@@ -348,7 +350,10 @@ def create_archive(
     excludes: list[str],
     label: str,
     progress: Progress,
+    sink=None,
 ) -> Path:
+    """Create a tar archive. With `sink` (a file-like object) the archive is streamed
+    into it and nothing is written to `archive_path`."""
     valid_compressions = {"gz", "bz2", "xz"}
     if compression not in valid_compressions:
         compression = "gz"
@@ -366,6 +371,8 @@ def create_archive(
         out = archive_path.parent / (stem + ext)
 
     task = progress.add_task(f"[cyan]{label}", total=None)
+    if sink is not None and hasattr(sink, "attach"):
+        sink.attach(progress, task, label)
 
     def _filter(tarinfo):
         for pat in excludes:
@@ -405,7 +412,11 @@ def create_archive(
     try:
         if source_path.is_dir():
             _unlock(source_path)
-        with tarfile.open(out, mode) as tf:
+        if sink is not None:
+            opened = tarfile.open(fileobj=sink, mode=f"w|{compression}")
+        else:
+            opened = tarfile.open(out, mode)
+        with opened as tf:
             if source_path.is_dir():
                 tf.add(source_path, arcname=source_path.name, filter=_filter)
             else:
@@ -684,8 +695,90 @@ class GitHubStorage:
                     return {}
                 return json.loads(body)
         except urllib.error.HTTPError as e:
-            body = e.read().decode()
-            raise RuntimeError(f"GitHub API error {e.code}: {body}") from e
+            raise self._http_error(e.code, e.read().decode(errors="replace")) from e
+
+    def _http_error(self, code: int, raw: str) -> Exception:
+        """Turn a GitHub API error response into a short, human-readable exception."""
+        try:
+            data   = json.loads(raw)
+            msg    = str(data.get("message", "")).strip()
+            extras = "; ".join(
+                str(x.get("message")) for x in data.get("errors", [])
+                if isinstance(x, dict) and x.get("message")
+            )
+        except Exception:
+            msg, extras = raw.strip()[:300], ""
+        blob = f"{msg} {extras}".lower()
+
+        if code in (409, 422) and "empty" in blob:
+            return UserError(
+                f"The repository '{self.repo}' has no commits yet, and GitHub cannot "
+                "create a release in an empty repository.",
+                hint="Open the repository on GitHub, click [bold]Add a README[/bold] (or create "
+                     "any file) and commit it. Then run the command again.",
+                title="GitHub repository is empty",
+            )
+        if code == 401:
+            return UserError(
+                "GitHub rejected the token (bad credentials).",
+                hint="Create a new token with the [bold]repo[/bold] scope at "
+                     "[cyan]https://github.com/settings/tokens[/cyan], then run "
+                     "[bold]termux-sync setup[/bold].",
+                title="Invalid GitHub token",
+            )
+        if code == 403 and "rate limit" in blob:
+            return UserError(
+                "GitHub is limiting requests from this token for now.",
+                hint="Wait a few minutes and try again.",
+                title="GitHub rate limit reached",
+            )
+        if code == 403:
+            return UserError(
+                msg or "The token is not allowed to do this.",
+                hint="Make sure the token has the [bold]repo[/bold] scope and can write to this repository.",
+                title="GitHub denied access",
+            )
+        if code == 404:
+            return UserError(
+                f"Repository '{self.repo}' was not found, or the token cannot see it.",
+                hint="Check the spelling (owner/repo) in [bold]termux-sync setup[/bold]. "
+                     "For a private repository the token needs the [bold]repo[/bold] scope.",
+                title="GitHub repository not found",
+            )
+        detail = ": ".join(x for x in (msg, extras) if x) or "no details"
+        return RuntimeError(f"GitHub API error {code}: {detail}")
+
+    def preflight(self):
+        """Fail fast — before a long archive step — if the repo cannot hold a release."""
+        self._api("GET", f"/repos/{self.repo}")                     # token + repo name
+        self._api("GET", f"/repos/{self.repo}/commits?per_page=1")  # 409 if empty
+
+    # ── streaming backup: parts are uploaded and deleted one by one ──
+    def begin_stream(self, backup_name: str, work_dir: Path):
+        work_dir.mkdir(parents=True, exist_ok=True)
+        need = int(self.CHUNK_SIZE * 1.2)
+        free = shutil.disk_usage(work_dir).free
+        if free < need:
+            raise UserError(
+                f"Only {human_size(free)} is free, but about {human_size(need)} is needed "
+                "to hold one upload part.",
+                hint="Free some space with [bold]termux-sync clear-cache[/bold], or remove "
+                     "files you no longer need, then try again.",
+                title="Not enough free space",
+            )
+        release = self._get_release_by_tag(backup_name) or self._create_release(backup_name)
+        self._stream = {"release_id": release["id"], "work_dir": work_dir}
+
+    def stream_sink(self, base_name: str, progress: Progress):
+        return _PartWriter(self, self._stream["release_id"], base_name,
+                           self._stream["work_dir"], progress)
+
+    def abort_stream(self, backup_name: str):
+        """Best effort: remove a half-finished release so it never counts as a backup."""
+        try:
+            self.delete_backup(backup_name)
+        except Exception:
+            pass
 
     def _push_file(self, local_path: Path, remote_path: str, message: str):
         import base64
@@ -774,19 +867,28 @@ class GitHubStorage:
                     result = json.loads(resp.read())
                 progress.update(progress_task, completed=file_size)
                 return result
+            except urllib.error.HTTPError as e:
+                # (HTTPError is a URLError subclass, so it must be handled first)
+                body = e.read().decode(errors="replace")
+                if e.code == 422:
+                    progress.update(progress_task, completed=file_size,
+                                    description=f"[yellow]{local_path.name} already uploaded, skipping")
+                    return {}
+                if e.code >= 500 or e.code == 429:      # temporary: retry
+                    last_err = e
+                    progress.update(progress_task,
+                        description=f"[yellow]Retry {attempt+1}/{self.MAX_RETRIES} ({local_path.name})...")
+                    _time.sleep(15 * (attempt + 1))
+                    continue
+                raise self._http_error(e.code, body) from e   # permanent: stop now
             except (urllib.error.URLError, OSError, ConnectionError) as e:
+                if getattr(e, "errno", None) == errno.ENOSPC:
+                    raise
                 last_err = e
                 wait = 15 * (attempt + 1)
                 progress.update(progress_task,
                     description=f"[yellow]Retry {attempt+1}/{self.MAX_RETRIES} ({local_path.name})...")
                 _time.sleep(wait)
-            except urllib.error.HTTPError as e:
-                body = e.read().decode()
-                if e.code == 422:
-                    progress.update(progress_task, completed=file_size,
-                                    description=f"[yellow]{local_path.name} already uploaded, skipping")
-                    return {}
-                raise RuntimeError(f"Asset upload failed {e.code}: {body}") from e
 
         raise RuntimeError(
             f"Failed to upload {local_path.name} after {self.MAX_RETRIES} attempts: {last_err}"
@@ -940,6 +1042,103 @@ class GitHubStorage:
             raise RuntimeError(f"Failed to delete backup from GitHub: {e}") from e
 
 
+class StreamAbort(Exception):
+    """Raised when an upload fails while the archive is being streamed."""
+    def __init__(self, original: Exception):
+        super().__init__(str(original))
+        self.original = original
+
+
+class _PartWriter:
+    """File-like sink for tarfile. Cuts the stream into CHUNK_SIZE parts and uploads
+    each part as soon as it is full, then deletes it — so the device never needs room
+    for the whole archive. Part names match what `restore` already reassembles."""
+
+    def __init__(self, storage, release_id: int, base_name: str, work_dir: Path, progress: Progress):
+        self.storage, self.release_id, self.base = storage, release_id, base_name
+        self.work_dir, self.progress = work_dir, progress
+        self.limit = storage.CHUNK_SIZE
+        self.idx = 0                       # parts uploaded so far
+        self.total = 0                     # bytes of the whole archive
+        self.sha = hashlib.sha256()        # checksum of the whole archive
+        self._fh = None
+        self._path = None
+        self._size = 0
+        self._task = None
+        self._label = base_name
+        self._next_note = 0
+
+    def attach(self, progress, task, label):
+        self.progress, self._task, self._label = progress, task, label
+
+    def _note(self):
+        if self._task is not None:
+            self.progress.update(
+                self._task,
+                description=f"[cyan]{self._label}  [dim]{human_size(self.total)} sent[/dim]",
+            )
+
+    def writable(self):
+        return True
+
+    def flush(self):
+        pass
+
+    def write(self, data) -> int:
+        view, pos, n = memoryview(data), 0, len(data)
+        while pos < n:
+            if self._fh is not None and self._size >= self.limit:
+                self._flush(final=False)
+            if self._fh is None:
+                self._path = self.work_dir / f"{self.base}.part{self.idx:04d}"
+                self._fh, self._size = open(self._path, "wb"), 0
+            piece = view[pos: pos + (self.limit - self._size)]
+            self._fh.write(piece)
+            self._size += len(piece)
+            self.total += len(piece)
+            self.sha.update(piece)
+            pos += len(piece)
+        if self.total >= self._next_note:
+            self._next_note = self.total + (8 << 20)
+            self._note()
+        return n
+
+    def _flush(self, final: bool):
+        self._fh.close()
+        self._fh = None
+        path = self._path
+        if final and self.idx == 0:        # small archive: one plain file, no ".part"
+            plain = self.work_dir / self.base
+            path.rename(plain)
+            path = plain
+        task = self.progress.add_task(f"[cyan]{path.name}…", total=max(path.stat().st_size, 1))
+        try:
+            self.storage._upload_one_asset(self.release_id, path, task, self.progress)
+        except Exception as e:
+            raise StreamAbort(e) from e
+        finally:
+            self.progress.remove_task(task)
+            path.unlink(missing_ok=True)
+        self.idx += 1
+        self._note()
+
+    def finish(self):
+        """Upload the last (possibly partial) part."""
+        if self._fh is not None:
+            self._flush(final=True)
+
+    def abort(self):
+        """Drop whatever is still on disk."""
+        try:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+            if self._path is not None:
+                Path(self._path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def get_storage(cfg: dict):
     s = cfg.get("storage", "local")
     if s == "gdrive":
@@ -963,6 +1162,11 @@ def cmd_backup(cfg: dict, label: str = ""):
     def _cleanup_tmp():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def _abort_backup():
+        if streaming:
+            storage.abort_stream(backup_name)
+        _cleanup_tmp()
+
     compression = cfg.get("compression", "gz")
     if compression not in ("gz", "bz2", "xz"):
         console.print(f"  [yellow]⚠ Compression '{compression}' is invalid, falling back to 'gz'.[/yellow]")
@@ -970,6 +1174,28 @@ def cmd_backup(cfg: dict, label: str = ""):
 
     excludes = cfg.get("exclude_patterns", [])
     storage  = get_storage(cfg)
+
+    check_storage = getattr(storage, "preflight", None)
+    if check_storage:
+        console.print("  [bold]Check[/bold]   Verifying GitHub repository…")
+        try:
+            check_storage()
+        except BaseException:
+            _cleanup_tmp()
+            raise
+        console.print(f"  {status_icon(True)} Repository is ready\n")
+
+    streaming = hasattr(storage, "begin_stream")
+    if streaming:
+        try:
+            storage.begin_stream(backup_name, tmp_dir / ".parts")
+        except BaseException:
+            _cleanup_tmp()
+            raise
+        console.print(
+            f"  {status_icon(True)} Streaming upload: the archive is sent in parts, "
+            "so your device never holds a full copy\n"
+        )
 
     meta = {
         "name":        backup_name,
@@ -993,7 +1219,8 @@ def cmd_backup(cfg: dict, label: str = ""):
     log("INFO", f"Collected {len(pkgs)} packages")
 
     console.print()
-    console.print("  [bold]Step 2/4[/bold]  Archiving directories…")
+    console.print("  [bold]Step 2/4[/bold]  " +
+                  ("Archiving & uploading directories…" if streaming else "Archiving directories…"))
     console.print()
 
     with Progress(
@@ -1014,17 +1241,43 @@ def cmd_backup(cfg: dict, label: str = ""):
                 console.print(f"  [yellow]⚠ Skipping {src} (not found)[/yellow]")
                 continue
             out_path = tmp_dir / f"{key}.tar.{compression}"
+            sink = storage.stream_sink(out_path.name, progress) if streaming else None
             try:
-                actual_out = create_archive(src, out_path, compression, excludes, label_text, progress)
-                checksum = sha256(actual_out)
+                actual_out = create_archive(src, out_path, compression, excludes, label_text,
+                                            progress, sink=sink)
+                if sink is not None:
+                    sink.finish()
+                    archive_size, checksum = sink.total, sink.sha.hexdigest()
+                else:
+                    checksum     = sha256(actual_out)
+                    archive_size = actual_out.stat().st_size
                 meta["files"][key] = {
                     "archive":  actual_out.name,
-                    "size":     actual_out.stat().st_size,
+                    "size":     archive_size,
                     "checksum": checksum,
                     "source":   str(src),
                 }
-                log("INFO", f"Archived {src} → {actual_out.name} ({human_size(actual_out.stat().st_size)})")
+                log("INFO", f"Archived {src} → {actual_out.name} ({human_size(archive_size)})")
+            except (StreamAbort, KeyboardInterrupt):
+                if sink is not None:
+                    sink.abort()
+                for t in list(progress.tasks):
+                    progress.remove_task(t.id)
+                _abort_backup()
+                raise
+            except OSError as e:
+                if sink is not None:
+                    sink.abort()
+                if e.errno == errno.ENOSPC:             # out of space: stop, don't continue silently
+                    for t in list(progress.tasks):
+                        progress.remove_task(t.id)
+                    _abort_backup()
+                    raise
+                console.print(f"  [red]✗ Failed to archive {src}: {escape(str(e))}[/red]")
+                log("ERROR", f"Archive failed for {src}: {e}")
             except Exception as e:
+                if sink is not None:
+                    sink.abort()
                 console.print(f"  [red]✗ Failed to archive {src}: {escape(str(e))}[/red]")
                 log("ERROR", f"Archive failed for {src}: {e}")
 
@@ -1038,6 +1291,7 @@ def cmd_backup(cfg: dict, label: str = ""):
     console.print()
 
     location = ""
+    upload_error = None
     with Progress(
         SpinnerColumn(),
         TextColumn("  {task.description}"),
@@ -1049,13 +1303,26 @@ def cmd_backup(cfg: dict, label: str = ""):
             location = storage.upload(tmp_dir, backup_name, progress)
             storage.delete_old(cfg.get("max_backups", 5))
         except KeyboardInterrupt:
-            _cleanup_tmp()
+            _abort_backup()
             raise
         except Exception as e:
-            console.print(f"  [red]✗ Upload failed: {escape(str(e))}[/red]")
-            log("ERROR", f"Upload failed: {e}")
-            _cleanup_tmp()
-            return
+            upload_error = e
+            for t in list(progress.tasks):          # drop the half-finished spinner line
+                progress.remove_task(t.id)
+
+    if upload_error is not None:
+        log("ERROR", f"Upload failed: {upload_error}")
+        title, message, hint = _explain(upload_error)
+        print_error(f"Upload failed — {title}", message, hint)
+        if streaming:
+            _abort_backup()        # remove the incomplete release so it never counts as a backup
+            console.print("  [dim]The incomplete backup was removed from GitHub.[/dim]\n")
+        else:
+            console.print("  [bold]Your backup files were kept[/bold] so the work is not lost:")
+            console.print(f"  [white]{escape(str(tmp_dir))}[/white]", soft_wrap=True)
+            console.print("  [dim]Delete them when you no longer need them:[/dim]")
+            console.print(f"  rm -rf {escape(str(tmp_dir))}\n", soft_wrap=True)
+        return
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1563,18 +1830,30 @@ def cmd_daemon(cfg: dict):
             log("ERROR", f"Daemon backup failed: {e}")
 
 
+def short_path(p) -> str:
+    """Shorten long Termux paths for narrow screens: $PREFIX/bin/tar, ~/.config/..."""
+    text   = str(p)
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    home   = str(Path.home())
+    if text == prefix or text.startswith(prefix + "/"):
+        return "$PREFIX" + text[len(prefix):]
+    if text == home or text.startswith(home + "/"):
+        return "~" + text[len(home):]
+    return text
+
+
 def cmd_status(cfg: dict):
     print_section("STATUS", "Current configuration and environment")
 
     sched = load_schedule()
 
-    cfg_table = Table(box=box.ROUNDED, show_header=False, padding=(0, 2))
-    cfg_table.add_column("Key",   style="dim cyan",   min_width=20)
-    cfg_table.add_column("Value", style="bold white")
+    cfg_table = Table(box=box.ROUNDED, show_header=False, padding=(0, 1))
+    cfg_table.add_column("Key",   style="dim cyan",   no_wrap=True)
+    cfg_table.add_column("Value", style="bold white", overflow="fold")
 
     cfg_table.add_row("Storage backend", cfg.get("storage", "local").upper())
     if cfg["storage"] == "local":
-        cfg_table.add_row("Local path",    cfg.get("local_path", "—"))
+        cfg_table.add_row("Local path",    short_path(cfg.get("local_path", "—")))
     elif cfg["storage"] == "gdrive":
         cfg_table.add_row("Drive folder",  cfg.get("gdrive_folder_id", "(root)") or "(root)")
     elif cfg["storage"] == "github":
@@ -1586,30 +1865,35 @@ def cmd_status(cfg: dict):
     if sched.get("enabled"):
         cfg_table.add_row("Schedule",    f"Daily at {sched['hour']:02d}:{sched['minute']:02d}")
     cfg_table.add_row("App version",     f"v{VERSION}")
-    cfg_table.add_row("Config file",     str(CONFIG_FILE))
-    cfg_table.add_row("Log file",        str(LOG_FILE))
+    for key, path in (("Config file", CONFIG_FILE), ("Log file", LOG_FILE)):
+        folder, _, fname = short_path(path).rpartition("/")
+        cfg_table.add_row(key, f"{escape(folder)}/\n{escape(fname)}")
 
     console.print(cfg_table)
     console.print()
 
-    env_table = Table(box=box.ROUNDED, show_header=False, padding=(0, 2),
+    env_table = Table(box=box.ROUNDED, show_header=False, padding=(0, 1),
                       title="[bold yellow]Environment[/bold yellow]")
-    env_table.add_column("Tool",   style="dim cyan", min_width=20)
-    env_table.add_column("Status")
+    env_table.add_column("Tool",   style="dim cyan", no_wrap=True)
+    env_table.add_column("",       no_wrap=True, width=1)
+    env_table.add_column("Path",   overflow="fold")
 
+    storage = cfg.get("storage", "local")
     checks = [
-        ("python3", shutil.which("python3")),
-        ("dpkg",    shutil.which("dpkg")),
-        ("tar",     shutil.which("tar")),
-        ("rclone",  shutil.which("rclone")),
-        ("git",     shutil.which("git")),
-        ("curl",    shutil.which("curl")),
+        ("python3", shutil.which("python3"), True),
+        ("dpkg",    shutil.which("dpkg"),    True),
+        ("tar",     shutil.which("tar"),     True),
+        ("rclone",  shutil.which("rclone"),  storage == "gdrive"),   # only needed for Google Drive
+        ("git",     shutil.which("git"),     True),
+        ("curl",    shutil.which("curl"),    True),
     ]
-    for name, path in checks:
+    for name, path, needed in checks:
         if path:
-            env_table.add_row(name, f"[green]✓ {path}[/green]")
+            env_table.add_row(name, "[green]✓[/green]", f"[green]{escape(short_path(path))}[/green]")
+        elif needed:
+            env_table.add_row(name, "[red]✗[/red]", f"[red]missing[/red] [dim]— pkg install {name}[/dim]")
         else:
-            env_table.add_row(name, "[red]✗ not found[/red]")
+            env_table.add_row(name, "[dim]–[/dim]", f"[dim]not needed for {storage.upper()}[/dim]")
 
     console.print(env_table)
 

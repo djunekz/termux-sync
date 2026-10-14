@@ -9,6 +9,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## Fixed
+- `status` tables fit narrow phone screens: long paths are shortened (`$PREFIX/bin/tar`, `~/.config/...`), the ✓/✗ sits in its own column, and `rclone` is shown as "not needed" unless Google Drive is the selected storage.
+- **GitHub backups no longer need room for the whole archive.** The archive is streamed and uploaded in 200 MB parts, each deleted right after it is sent (before, the full archive *plus* a split copy were written to disk, which caused "No space left on device"). The backup format is unchanged, so `restore` works as before. Needs about 250 MB free.
+- Upload retry logic: permanent HTTP errors (bad token, etc.) now stop immediately instead of retrying for minutes; "already uploaded" (422) is handled again.
+- Running out of disk space during `backup` stops with a clear message instead of continuing with a broken backup.
+- `backup` to GitHub now checks the repository (token, name, not empty) *before* the long archive step, instead of failing after the archive is built.
+- GitHub API errors are shown as short readable messages (e.g. "repository is empty") instead of raw JSON.
+- If an upload fails, the finished archives are kept in the temp folder instead of being deleted.
+
 ---
 
 ## [1.2.6] - 2026-10-15
@@ -22,7 +31,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Missing `rich` no longer causes a `NameError`; it is installed automatically on first run.
 - Invalid "Max backups" input in `setup` no longer crashes.
-- Error text containing square brackets can no longer break rich markup.
+- Error text containing square brackets can no longer break rich markup
 
 ---
 
