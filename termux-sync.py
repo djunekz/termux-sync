@@ -9,8 +9,12 @@ Supports Local, Google Drive, and GitHub (private repo) storage.
 """
 
 import os
+import re
 import sys
 import json
+import errno
+import difflib
+import traceback
 import time
 import shutil
 import hashlib
@@ -39,11 +43,24 @@ try:
     from rich.rule import Rule
     from rich.syntax import Syntax
     from rich.align import Align
+    from rich.markup import escape
+    from rich.padding import Padding
     RICH_AVAILABLE = True
 except ImportError:
-    RICH_AVAILABLE = False
+    if os.environ.get("_TERMUX_SYNC_BOOTSTRAP") != "1":
+        sys.stderr.write("\n  termux-sync: installing required package 'rich' ...\n\n")
+        _r = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "rich"])
+        if _r.returncode == 0:
+            os.environ["_TERMUX_SYNC_BOOTSTRAP"] = "1"
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    sys.stderr.write(
+        "\n  ERROR: the Python package 'rich' is required but could not be installed.\n"
+        "  Install it manually, then run termux-sync again:\n\n"
+        "      pip install rich\n\n"
+    )
+    sys.exit(1)
 
-VERSION       = "1.2.4"
+VERSION       = "1.2.6"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -101,8 +118,16 @@ DEFAULT_CONFIG = {
 def load_config() -> dict:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE) as f:
-            data = json.load(f)
+        try:
+            with open(CONFIG_FILE) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise UserError(
+                f"The config file is not valid JSON (line {e.lineno}, column {e.colno}).\n"
+                f"File: {CONFIG_FILE}",
+                hint="Fix the file by hand, or delete it and run [bold]termux-sync setup[/bold] again.",
+                title="Config file is corrupted",
+            ) from e
         for k, v in DEFAULT_CONFIG.items():
             data.setdefault(k, v)
         return data
@@ -116,6 +141,121 @@ def save_config(cfg: dict):
 
 
 console = Console()
+
+DEBUG      = bool(os.environ.get("TERMUX_SYNC_DEBUG"))
+ISSUES_URL = "https://github.com/djunekz/termux-sync/issues"
+
+
+# ───────────────────────── Error handling ─────────────────────────
+class UserError(Exception):
+    """An expected, fixable problem. Shown as a clean message — no traceback."""
+
+    def __init__(self, message: str, hint: str = "", title: str = "Cannot continue"):
+        super().__init__(message)
+        self.message = message
+        self.hint    = hint      # may contain rich markup (written by us, not user input)
+        self.title   = title
+
+
+def print_error(title: str, message: str, hint: str = "", where: str = ""):
+    """Render one tidy error panel. `message` is escaped; `hint` may use markup."""
+    body = [f"[bold red]{escape(title)}[/bold red]", "", escape(message)]
+    if where:
+        body += ["", f"[dim]at {escape(where)}[/dim]"]
+    if hint:
+        body += ["", "[bold yellow]How to fix[/bold yellow]", hint]
+    console.print()
+    console.print(Panel(
+        "\n".join(body),
+        title="[bold red] ERROR [/bold red]",
+        border_style="red",
+        padding=(1, 2),
+        expand=False,
+    ))
+    console.print()
+
+
+def _origin(exc: BaseException) -> str:
+    """Last stack frame that lives in this file, e.g. 'termux-sync.py:1217 in cmd_setup()'."""
+    found, tb = "", exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == __file__:
+            found = f"{Path(__file__).name}:{tb.tb_lineno} in {tb.tb_frame.f_code.co_name}()"
+        tb = tb.tb_next
+    return found
+
+
+def _explain(exc: Exception) -> tuple:
+    """Translate an exception into (title, message, hint)."""
+    import urllib.error
+    import socket
+
+    if isinstance(exc, UserError):
+        return exc.title, exc.message, exc.hint
+    if isinstance(exc, EOFError):
+        return (
+            "Input was closed",
+            "termux-sync asked a question, but no answer could be read "
+            "(the input stream ended, or you pressed Ctrl+D).",
+            "Run the command directly in the Termux terminal — not through a pipe, "
+            "script, or widget — and answer the prompts.",
+        )
+    if isinstance(exc, FileNotFoundError):
+        return ("File or folder not found", str(exc.filename or exc),
+                "Check that the path exists and is spelled correctly.")
+    if isinstance(exc, PermissionError):
+        return ("Permission denied", str(exc.filename or exc),
+                "Pick a path inside your home directory, or run "
+                "[bold]termux-setup-storage[/bold] to grant access to shared storage.")
+    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+        return ("Device is out of space", "There is not enough free storage to finish this.",
+                "Free some space with [bold]termux-sync clear-cache[/bold] "
+                "or check usage with [bold]termux-sync check[/bold].")
+    if isinstance(exc, urllib.error.HTTPError):
+        hint = "Check your token and repository name with [bold]termux-sync setup[/bold]."
+        if exc.code in (401, 403):
+            hint = "Your token is invalid, expired, or lacks the [bold]repo[/bold] scope. Create a new one and run [bold]termux-sync setup[/bold]."
+        elif exc.code == 404:
+            hint = "The repository or release was not found. Check the repo name in [bold]termux-sync setup[/bold]."
+        return f"GitHub returned HTTP {exc.code}", str(exc.reason), hint
+    if isinstance(exc, (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError)):
+        return ("Network problem", str(getattr(exc, "reason", None) or exc),
+                "Check your internet connection and try again.")
+    if isinstance(exc, subprocess.CalledProcessError):
+        cmd = exc.cmd if isinstance(exc.cmd, str) else " ".join(map(str, exc.cmd))
+        return ("A command failed", f"{cmd}\nexit code {exc.returncode}",
+                "Run that command by hand to see its full output.")
+    if isinstance(exc, (RuntimeError, ValueError)):
+        return "Operation failed", str(exc), "See the message above. Details are saved in the log."
+    return (
+        "Unexpected error",
+        f"{type(exc).__name__}: {exc}",
+        f"Run again with [bold]--debug[/bold] for the full traceback.\n"
+        f"If it keeps happening, please report it:  [cyan]{ISSUES_URL}[/cyan]",
+    )
+
+
+def handle_crash(exc: Exception):
+    """Log the full traceback to the log file; show a clean panel on screen."""
+    try:
+        log("ERROR", f"{type(exc).__name__}: {exc}")
+        for line in "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).splitlines():
+            log("TRACE", line)
+    except Exception:
+        pass
+
+    console.print()                        # leave the half-finished prompt line
+    title, message, hint = _explain(exc)
+    expected = isinstance(exc, UserError)
+    print_error(title, message, hint, where="" if expected and not DEBUG else _origin(exc))
+
+    if DEBUG:
+        console.print("[bold dim]Full traceback (--debug)[/bold dim]")
+        console.print_exception(show_locals=False, max_frames=10, suppress=[sys.modules["rich"]])
+        console.print()
+    else:
+        shown = str(LOG_FILE).replace(str(Path.home()), "~")
+        console.print(f"  [dim]Log: {shown}[/dim]\n")
 
 
 def print_banner():
@@ -418,8 +558,12 @@ class GDriveStorage:
 
     def _check_rclone(self):
         if shutil.which("rclone") is None:
-            console.print("[red]rclone not found. Install: pkg install rclone[/red]")
-            sys.exit(1)
+            raise UserError(
+                "Google Drive storage needs rclone, but it is not installed.",
+                hint="Install it with [bold]pkg install rclone[/bold], then configure a remote "
+                     "named [bold]termux-sync-gdrive[/bold] using [bold]rclone config[/bold].",
+                title="rclone not found",
+            )
 
     def _remote_path(self, name: str = "") -> str:
         base = f"{self.REMOTE}:"
@@ -504,8 +648,12 @@ class GitHubStorage:
         self.repo   = cfg.get("github_repo", "")
         self.branch = cfg.get("github_branch", "main")
         if not self.token or not self.repo:
-            console.print("[red]GitHub token and repo are required. Run: termux-sync setup[/red]")
-            sys.exit(1)
+            raise UserError(
+                "GitHub storage is selected, but the token or repository is not set.",
+                hint="Run [bold]termux-sync setup[/bold] and enter your Personal Access Token "
+                     "and repo (owner/repo).",
+                title="GitHub is not configured",
+            )
 
     def _headers(self) -> dict:
         return {
@@ -877,7 +1025,7 @@ def cmd_backup(cfg: dict, label: str = ""):
                 }
                 log("INFO", f"Archived {src} → {actual_out.name} ({human_size(actual_out.stat().st_size)})")
             except Exception as e:
-                console.print(f"  [red]✗ Failed to archive {src}: {e}[/red]")
+                console.print(f"  [red]✗ Failed to archive {src}: {escape(str(e))}[/red]")
                 log("ERROR", f"Archive failed for {src}: {e}")
 
     console.print()
@@ -904,7 +1052,7 @@ def cmd_backup(cfg: dict, label: str = ""):
             _cleanup_tmp()
             raise
         except Exception as e:
-            console.print(f"  [red]✗ Upload failed: {e}[/red]")
+            console.print(f"  [red]✗ Upload failed: {escape(str(e))}[/red]")
             log("ERROR", f"Upload failed: {e}")
             _cleanup_tmp()
             return
@@ -1000,7 +1148,7 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         try:
             storage.download(backup_name, tmp_dir, progress)
         except Exception as e:
-            console.print(f"  [red]✗ Download failed: {e}[/red]")
+            console.print(f"  [red]✗ Download failed: {escape(str(e))}[/red]")
             log("ERROR", f"Download failed: {e}")
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
@@ -1082,7 +1230,7 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
                 extract_archive(archive, src_dir, info["archive"], progress)
                 log("INFO", f"Extracted {info['archive']} → {src_dir}")
             except Exception as e:
-                console.print(f"  [red]✗ Extract failed: {e}[/red]")
+                console.print(f"  [red]✗ Extract failed: {escape(str(e))}[/red]")
                 log("ERROR", f"Extract failed for {info['archive']}: {e}")
 
     pkgs = manifest.get("packages", [])
@@ -1198,7 +1346,7 @@ def cmd_delete(cfg: dict, backup_name: str = ""):
         console.print(f"\n  [bold green]✓ Backup '{backup_name}' deleted successfully.[/bold green]\n")
         log("INFO", f"Deleted backup: {backup_name}")
     except Exception as e:
-        console.print(f"\n  [red]✗ Failed to delete backup: {e}[/red]\n")
+        console.print(f"\n  [red]✗ Failed to delete backup: {escape(str(e))}[/red]\n")
         log("ERROR", f"Delete failed for {backup_name}: {e}")
 
 
@@ -1282,9 +1430,12 @@ def cmd_setup():
         "  Compression (gz=fast, bz2=balanced, xz=best)",
         choices=["gz", "bz2", "xz"], default=cfg.get("compression", "gz")
     )
-    cfg["max_backups"] = int(Prompt.ask(
-        "  Max backups to keep", default=str(cfg.get("max_backups", 5))
-    ))
+    while True:
+        raw = Prompt.ask("  Max backups to keep", default=str(cfg.get("max_backups", 5))).strip()
+        if raw.isdigit() and int(raw) >= 1:
+            cfg["max_backups"] = int(raw)
+            break
+        console.print("  [red]✗ Enter a whole number of 1 or more.[/red]")
 
     console.print()
     current_patterns = cfg.get("exclude_patterns", [])
@@ -1479,14 +1630,25 @@ def cmd_logs(lines: int = 40):
     if not LOG_FILE.exists():
         console.print("  [dim]No log file yet.[/dim]")
         return
-    log_lines = LOG_FILE.read_text().splitlines()[-lines:]
+    all_lines = LOG_FILE.read_text().splitlines()
+    if not DEBUG:
+        all_lines = [ln for ln in all_lines if "[TRACE]" not in ln]
+    log_lines = all_lines[-lines:]
+    if not log_lines:
+        console.print("  [dim]No log entries.[/dim]")
+        return
+    if not DEBUG:
+        console.print("  [dim]Tip: add --debug to also show saved tracebacks.[/dim]\n")
     for line in log_lines:
+        safe = escape(line)
         if "[ERROR]" in line:
-            console.print(f"  [red]{line}[/red]")
+            console.print(f"  [red]{safe}[/red]")
         elif "[WARN]" in line:
-            console.print(f"  [yellow]{line}[/yellow]")
+            console.print(f"  [yellow]{safe}[/yellow]")
+        elif "[TRACE]" in line:
+            console.print(f"  [dim red]{safe}[/dim red]")
         else:
-            console.print(f"  [dim]{line}[/dim]")
+            console.print(f"  [dim]{safe}[/dim]")
 
 
 def cmd_clear_logs():
@@ -1716,7 +1878,7 @@ def cmd_clear_cache():
                             else:
                                 child.unlink(missing_ok=True)
                         except Exception as e:
-                            log("WARN", f"Could not remove {child}: {e}")
+                            log("WARN", f"Could not remove {child}: {escape(str(e))}")
                 prog.update(task, total=1, completed=1,
                             description=f"[green]{label} cleared ({human_size(size)}) ✓")
                 cleared += size
@@ -1764,15 +1926,17 @@ def cmd_import_config(input_path: str = ""):
 
     src = Path(input_path).expanduser()
     if not src.exists():
-        console.print(f"  [red]File not found: {src}[/red]\n")
-        return
+        raise UserError(str(src), hint="Check the path and try again.", title="File not found")
 
     try:
         with open(src) as f:
             new_cfg = json.load(f)
     except json.JSONDecodeError as e:
-        console.print(f"  [red]Invalid JSON file: {e}[/red]\n")
-        return
+        raise UserError(
+            f"{src}\nLine {e.lineno}, column {e.colno}: {e.msg}",
+            hint="Make sure the file is a valid JSON export from [bold]termux-sync export-config[/bold].",
+            title="Not a valid JSON file",
+        ) from e
 
     existing = load_config()
 
@@ -1789,117 +1953,127 @@ def cmd_import_config(input_path: str = ""):
     log("INFO", f"Config imported from {src}")
 
 
-def ensure_dependencies():
-    try:
-        import rich
-    except ImportError:
-        print("Installing required Python packages (rich)…")
-        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "rich"], check=True)
-        print("Done. Please re-run termux-sync.")
-        sys.exit(0)
+# ───────────────────────── Command line ─────────────────────────
+COMMAND_GROUPS = [
+    ("Backup & Restore", [
+        ("backup",        "Create a new backup"),
+        ("restore",       "Restore from a backup"),
+        ("list",          "List all available backups"),
+        ("delete",        "Delete a specific backup"),
+    ]),
+    ("Configuration", [
+        ("setup",         "Interactive configuration wizard"),
+        ("schedule",      "Configure auto-backup schedule"),
+        ("daemon",        "Run background scheduler (used by Termux:Boot)"),
+        ("export-config", "Export config to a file (tokens redacted)"),
+        ("import-config", "Import config from a file"),
+    ]),
+    ("Maintenance", [
+        ("status",        "Show current config and environment"),
+        ("logs",          "Show recent log entries"),
+        ("clear-logs",    "Clear / reset the log file"),
+        ("check",         "Show disk usage (~, $PREFIX, or a custom path)"),
+        ("clear-cache",   "Remove temporary and cached files"),
+        ("help",          "Show this help"),
+    ]),
+]
+COMMANDS = [name for _, items in COMMAND_GROUPS for name, _ in items]
+
+OPTIONS = [
+    ("-l, --label LABEL", "Label for this backup"),
+    ("-n, --name NAME",   "Backup name to restore / delete"),
+    ("--lines N",         "Lines to show in logs (default 40)"),
+    ("--debug",           "Show the full traceback if something fails"),
+    ("-v, --version",     "Print version and exit"),
+    ("-h, --help",        "Show this help"),
+]
+
+EXAMPLES = [
+    ("termux-sync setup",                              "first-time configuration"),
+    ("termux-sync backup --label before-new-phone",    "create a labelled backup"),
+    ("termux-sync list",                               "see all backups"),
+    ("termux-sync restore",                            "pick a backup to restore"),
+    ("termux-sync delete --name <backup-name>",        "delete a specific backup"),
+    ("termux-sync logs --lines 100",                   "show the last 100 log lines"),
+    ("termux-sync check ~",                            "disk usage of your home"),
+    ("termux-sync import-config <file>",               "load a config file"),
+]
+
+# Commands people commonly try that live elsewhere.
+COMMAND_HINTS = {
+    "update":  "termux-sync has no built-in update command. Use [bold]tsctl updater[/bold] to update.",
+    "upgrade": "To update, use [bold]tsctl updater[/bold].",
+    "install": "To install or reinstall, use the install script, or [bold]tsctl[/bold].",
+    "remove":  "To delete a backup use [bold]termux-sync delete[/bold]. To uninstall the tool use [bold]tsctl uninstall[/bold].",
+    "config":  "Use [bold]termux-sync setup[/bold] to change settings, or [bold]termux-sync status[/bold] to view them.",
+    "sync":    "Use [bold]termux-sync backup[/bold] to upload, or [bold]termux-sync restore[/bold] to download.",
+}
 
 
-def main():
-    ensure_dependencies()
+def print_help():
+    print_banner()
+    console.print(f"  [bold]Usage:[/bold]  termux-sync [cyan]<command>[/cyan] [dim]{escape('[target] [options]')}[/dim]")
+    console.print()
 
-    parser = argparse.ArgumentParser(
-        prog="termux-sync",
-        description="Termux Backup & Restore — sync your environment across devices",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""\
-Commands:
-  backup         Create a new backup
-  restore        Restore from a backup
-  list           List all available backups
-  delete         Delete a specific backup
-  setup          Interactive configuration wizard
-  schedule       Configure auto-backup schedule
-  daemon         Run background scheduler (called by Termux:Boot)
-  status         Show current config and environment
-  logs           Show recent log entries
-  clear-logs     Clear / reset the log file
-  check          Show disk usage (check ~, $PREFIX, or a custom path)
-  clear-cache    Remove temporary and cached files
-  export-config  Export config to a file (tokens redacted)
-  import-config  Import config from a file
+    for group, items in COMMAND_GROUPS:
+        table = Table(box=None, show_header=False, padding=(0, 2), pad_edge=False)
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column()
+        for name, desc in items:
+            table.add_row(name, escape(desc))
+        console.print(f"  [bold yellow]{group}[/bold yellow]")
+        console.print(Padding(table, (0, 0, 1, 2)))
 
-Examples:
-  termux-sync setup
-  termux-sync backup --label "before-new-phone"
-  termux-sync list
-  termux-sync restore
-  termux-sync delete
-  termux-sync delete --name termux_backup_20240501_120000
-  termux-sync schedule
-  termux-sync status
-  termux-sync logs --lines 100
-  termux-sync clear-logs
-  termux-sync check
-  termux-sync check ~
-  termux-sync check $PREFIX
-  termux-sync clear-cache
-  termux-sync export-config
-  termux-sync import-config ~/termux-sync-config-export.json
-        """,
-    )
-    parser.add_argument("command", nargs="?", default="help",
-                        choices=["backup", "restore", "list", "delete", "setup", "schedule",
-                                 "daemon", "status", "logs", "clear-logs", "check",
-                                 "clear-cache", "export-config", "import-config", "help"])
-    parser.add_argument("target",  nargs="?", default="",  help="Optional path for check / import-config")
-    parser.add_argument("--label",   "-l", default="",    help="Label for this backup")
-    parser.add_argument("--name",    "-n", default="",    help="Backup name to restore / delete")
-    parser.add_argument("--lines",         default=40, type=int, help="Lines to show in logs")
-    parser.add_argument("--version", "-v", action="store_true",  help="Print version and exit")
+    table = Table(box=None, show_header=False, padding=(0, 2), pad_edge=False)
+    table.add_column(style="green", no_wrap=True)
+    table.add_column()
+    for flag, desc in OPTIONS:
+        table.add_row(escape(flag), escape(desc))
+    console.print("  [bold yellow]Options[/bold yellow]")
+    console.print(Padding(table, (0, 0, 1, 2)))
 
-    args = parser.parse_args()
+    console.print("  [bold yellow]Examples[/bold yellow]")
+    for cmd, _ in EXAMPLES:
+        console.print(f"    [dim]$[/dim] [white]{escape(cmd)}[/white]", soft_wrap=True)
+    console.print()
 
-    if args.version:
-        print(f"termux-sync v{VERSION}")
-        return
 
-    if args.command == "help" or args.command is None:
-        print_banner()
-        parser.print_help()
-        return
+class FriendlyParser(argparse.ArgumentParser):
+    """argparse, but errors are shown as a tidy panel instead of a usage dump."""
 
-    cfg = load_config()
+    def error(self, message):
+        m = re.search(r"invalid choice: '([^']*)'", message)
+        if m:
+            bad = m.group(1)
+            hint_lines = []
+            if bad in COMMAND_HINTS:
+                hint_lines.append(COMMAND_HINTS[bad])
+            close = [] if bad in COMMAND_HINTS else difflib.get_close_matches(bad, COMMANDS, n=3, cutoff=0.6)
+            if close:
+                hint_lines.append("Did you mean:  " + "   ".join(f"[bold cyan]{c}[/bold cyan]" for c in close))
+            hint_lines.append("Run [bold]termux-sync help[/bold] to see all commands.")
+            print_error("Unknown command", f"'{bad}' is not a termux-sync command.", "\n\n".join(hint_lines))
+        else:
+            nice = message.replace("argument --lines/", "--lines").replace("argument ", "")
+            print_error("Invalid usage", nice,
+                        "Run [bold]termux-sync help[/bold] to see the correct usage.")
+        sys.exit(2)
 
-    try:
-        if args.command == "setup":
-            cmd_setup()
-        elif args.command == "backup":
-            cmd_backup(cfg, label=args.label)
-        elif args.command == "restore":
-            cmd_restore(cfg, backup_name=args.name)
-        elif args.command == "list":
-            cmd_list(cfg)
-        elif args.command == "delete":
-            cmd_delete(cfg, backup_name=args.name)
-        elif args.command == "schedule":
-            cmd_schedule()
-        elif args.command == "daemon":
-            cmd_daemon(cfg)
-        elif args.command == "status":
-            cmd_status(cfg)
-        elif args.command == "logs":
-            cmd_logs(args.lines)
-        elif args.command == "clear-logs":
-            cmd_clear_logs()
-        elif args.command == "check":
-            cmd_check(args.target or "")
-        elif args.command == "clear-cache":
-            cmd_clear_cache()
-        elif args.command == "export-config":
-            cmd_export_config(args.target or "")
-        elif args.command == "import-config":
-            cmd_import_config(args.target or "")
-    except KeyboardInterrupt:
-        _abort()
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = FriendlyParser(prog="termux-sync", add_help=False)
+    parser.add_argument("command", nargs="?", default="help", choices=COMMANDS, metavar="command")
+    parser.add_argument("target", nargs="?", default="")
+    parser.add_argument("--label", "-l", default="")
+    parser.add_argument("--name",  "-n", default="")
+    parser.add_argument("--lines", default=40, type=int)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--version", "-v", action="store_true")
+    parser.add_argument("--help", "-h", action="store_true")
+    return parser
 
 
 def _abort():
-    console.print()
     console.print()
     console.print(
         Panel(
@@ -1909,9 +2083,49 @@ def _abort():
             "  Run the command again whenever you're ready.",
             border_style="yellow",
             padding=(1, 2),
+            expand=False,
         )
     )
-    sys.exit(0)
+    sys.exit(130)
+
+
+def main(argv=None):
+    global DEBUG
+    args = build_parser().parse_args(argv)
+    DEBUG = DEBUG or args.debug
+
+    if args.version:
+        print(f"termux-sync v{VERSION}")
+        return
+
+    if args.help or args.command in (None, "help"):
+        print_help()
+        return
+
+    try:
+        cfg = load_config()
+        handlers = {
+            "setup":         lambda: cmd_setup(),
+            "backup":        lambda: cmd_backup(cfg, label=args.label),
+            "restore":       lambda: cmd_restore(cfg, backup_name=args.name),
+            "list":          lambda: cmd_list(cfg),
+            "delete":        lambda: cmd_delete(cfg, backup_name=args.name),
+            "schedule":      lambda: cmd_schedule(),
+            "daemon":        lambda: cmd_daemon(cfg),
+            "status":        lambda: cmd_status(cfg),
+            "logs":          lambda: cmd_logs(args.lines),
+            "clear-logs":    lambda: cmd_clear_logs(),
+            "check":         lambda: cmd_check(args.target or ""),
+            "clear-cache":   lambda: cmd_clear_cache(),
+            "export-config": lambda: cmd_export_config(args.target or ""),
+            "import-config": lambda: cmd_import_config(args.target or ""),
+        }
+        handlers[args.command]()
+    except KeyboardInterrupt:
+        _abort()
+    except Exception as exc:
+        handle_crash(exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
