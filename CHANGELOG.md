@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.2.8] - 2026-10-15
+
 ## Fixed
 - `status` tables fit narrow phone screens: long paths are shortened (`$PREFIX/bin/tar`, `~/.config/...`), the ✓/✗ sits in its own column, and `rclone` is shown as "not needed" unless Google Drive is the selected storage.
 - **GitHub backups no longer need room for the whole archive.** The archive is streamed and uploaded in 200 MB parts, each deleted right after it is sent (before, the full archive *plus* a split copy were written to disk, which caused "No space left on device"). The backup format is unchanged, so `restore` works as before. Needs about 250 MB free.
