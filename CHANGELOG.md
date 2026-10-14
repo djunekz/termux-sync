@@ -11,6 +11,21 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.6] - 2026-10-15
+
+### Changed
+- Errors are now shown as a clean panel (what happened, where, how to fix) instead of a raw Python traceback. The full traceback is written to the log file; use `--debug` to print it.
+- `termux-sync help` / `-h` now renders a grouped, readable help screen instead of the long argparse dump.
+- Unknown commands show "Did you mean ...?" suggestions (and point `update` to `tsctl updater`).
+- Closed input (EOF / Ctrl+D) during a prompt is reported clearly instead of crashing.
+
+### Fixed
+- Missing `rich` no longer causes a `NameError`; it is installed automatically on first run.
+- Invalid "Max backups" input in `setup` no longer crashes.
+- Error text containing square brackets can no longer break rich markup.
+
+---
+
 ## [1.2.4] - 2026-07-28
 
 ### Security
