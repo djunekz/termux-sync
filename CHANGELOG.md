@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0] - 2026-10-21
+
 ### Changed
 - **Cleaner, phone-friendly output.** All progress bars now use a single non-wrapping line per task: the label is cut with "…" instead of pushing the bar and timer onto a second line.
 - Backup picker (`restore`, `delete`) no longer overflows the screen. On narrow terminals each backup is shown as a compact two-line card (name, then date · packages · size · label); on wide terminals it stays a table, now with Size and Pkgs columns. The redundant "Storage" column was removed.
