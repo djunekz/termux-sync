@@ -34,7 +34,7 @@ try:
         TextColumn, TimeElapsedColumn, FileSizeColumn,
         TransferSpeedColumn, TaskProgressColumn,
     )
-    from rich.table import Table
+    from rich.table import Table, Column
     from rich.prompt import Prompt, Confirm
     from rich.text import Text
     from rich import box
@@ -261,9 +261,15 @@ def handle_crash(exc: Exception):
 
 
 def print_banner():
-    console.print(
-        Align.center(
-            f"[bold green]{BANNER}[/bold green]"))
+    art_width = max(len(line) for line in BANNER.splitlines())
+    if console.width >= art_width + 2:
+        console.print(
+            Align.center(
+                f"[bold green]{BANNER}[/bold green]"))
+    else:
+        console.print()
+        console.print(Align.center("[bold green]T E R M U X - S Y N C[/bold green]"))
+        console.print()
     console.print(
         Align.center(
             f"[dim]Version: [/dim][bold white]v{VERSION}[/bold white]\n"
@@ -275,16 +281,107 @@ def print_banner():
     console.print()
 
 
+def note(text: str, style: str = ""):
+    """Print wrapped text with a 2-space margin on both sides, so lines that
+    wrap on a narrow screen stay aligned instead of jumping back to column 0."""
+    console.print(Padding(text, (0, 1, 0, 2)), style=style)
+
+
 def print_section(title: str, subtitle: str = ""):
     console.print()
-    console.print(Rule(f"[bold yellow]  {title}  [/bold yellow]", style="yellow dim"))
+    console.print(Rule(f"[bold yellow]{title}[/bold yellow]", style="yellow dim"))
     if subtitle:
-        console.print(f"  [dim]{subtitle}[/dim]")
+        note(f"[dim]{subtitle}[/dim]")
     console.print()
 
 
 def status_icon(ok: bool) -> str:
     return "[bold green]✓[/bold green]" if ok else "[bold red]✗[/bold red]"
+
+
+def is_narrow() -> bool:
+    """True on phone-sized terminals (Termux portrait is ~45 columns)."""
+    return console.width < 72
+
+
+def make_progress(transient: bool = False, percent: bool = False) -> Progress:
+    """One-line-per-task progress display that never wraps.
+
+    The description column takes whatever width is left and is cut with "…"
+    instead of pushing the bar/time onto a second line on narrow screens."""
+    cols = [
+        SpinnerColumn(),
+        TextColumn(
+            "{task.description}",
+            table_column=Column(ratio=1, no_wrap=True, overflow="ellipsis"),
+        ),
+        BarColumn(bar_width=10 if is_narrow() else 24),
+    ]
+    if percent:
+        cols.append(TaskProgressColumn())
+    cols.append(TimeElapsedColumn())
+    return Progress(*cols, console=console, expand=True, transient=transient)
+
+
+def fmt_elapsed(seconds: float) -> str:
+    seconds = int(seconds)
+    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def _backup_date(b: dict) -> str:
+    return str(b.get("date", "—"))[:16].replace("T", " ")
+
+
+def _backup_label(b: dict) -> str:
+    label = b.get("label", "") or ""
+    return "" if label == b.get("name") else label
+
+
+def _backup_size(b: dict) -> int:
+    return sum(v.get("size", 0) for v in (b.get("files") or {}).values())
+
+
+def print_backup_list(backups: list, title: str = "Available Backups"):
+    """Numbered backup list. Table on wide terminals, 2-line cards on phones."""
+    if is_narrow():
+        console.print(f"  [bold yellow]{title}[/bold yellow]\n")
+        for i, b in enumerate(backups, 1):
+            console.print(f"  [bold cyan]{i:>2}[/bold cyan]  [bold white]{escape(str(b.get('name', '—')))}[/bold white]")
+            bits = [f"[green]{_backup_date(b)}[/green]"]
+            if b.get("packages"):
+                bits.append(f"[cyan]{len(b['packages'])} pkgs[/cyan]")
+            if _backup_size(b):
+                bits.append(f"[blue]{human_size(_backup_size(b))}[/blue]")
+            if _backup_label(b):
+                bits.append(f"[yellow]{escape(_backup_label(b))}[/yellow]")
+            console.print("      " + " [dim]·[/dim] ".join(bits))
+            console.print()
+        return
+
+    table = Table(
+        box=box.ROUNDED,
+        title=f"[bold yellow]{title}[/bold yellow]",
+        show_header=True,
+        header_style="bold cyan",
+        padding=(0, 1),
+    )
+    table.add_column("#",    style="dim", width=3, justify="right")
+    table.add_column("Name", style="bold white", no_wrap=True)
+    table.add_column("Date", style="green", no_wrap=True)
+    table.add_column("Pkgs", style="cyan", justify="right")
+    table.add_column("Size", style="blue", justify="right")
+    table.add_column("Label", style="yellow")
+    for i, b in enumerate(backups, 1):
+        table.add_row(
+            str(i),
+            escape(str(b.get("name", "—"))),
+            _backup_date(b),
+            str(len(b.get("packages", []))) if b.get("packages") else "—",
+            human_size(_backup_size(b)) if _backup_size(b) else "—",
+            escape(_backup_label(b)) or "—",
+        )
+    console.print(table)
+    console.print()
 
 
 def human_size(size_bytes: int) -> str:
@@ -320,27 +417,30 @@ def get_installed_packages() -> list[str]:
         return []
 
 
-def install_packages(pkg_list: list[str], console: Console):
+def install_packages(pkg_list: list[str], console: Console) -> list[str]:
+    """Reinstall packages one by one. Returns the names that failed."""
     if not pkg_list:
         console.print("  [yellow]No packages to install.[/yellow]")
-        return
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]Installing packages…", total=len(pkg_list))
-        for pkg in pkg_list:
+        return []
+    failed: list[str] = []
+    total = len(pkg_list)
+    with make_progress(transient=True, percent=True) as progress:
+        task = progress.add_task("[cyan]Installing…", total=total)
+        for i, pkg in enumerate(pkg_list, 1):
+            progress.update(task, description=f"[cyan]{i}/{total}  {escape(pkg)}")
             try:
                 subprocess.run(
                     ["pkg", "install", "-y", pkg],
                     capture_output=True, check=True
                 )
             except Exception:
-                pass
+                failed.append(pkg)
             progress.advance(task)
+    console.print(f"  {status_icon(True)} Installed [bold green]{total - len(failed)}[/bold green] of {total} packages")
+    if failed:
+        console.print(f"  [yellow]⚠ {len(failed)} package(s) could not be installed (see log).[/yellow]")
+        log("WARNING", "Packages failed to install: " + ", ".join(failed))
+    return failed
 
 
 def create_archive(
@@ -918,15 +1018,20 @@ class GitHubStorage:
                 for chunk in chunks:
                     if chunk.name in existing_assets:
                         continue
+                    progress.update(task, total=None, completed=0,
+                                    description=f"[cyan]Uploading {escape(chunk.name)}")
                     asset_task = progress.add_task(
                         f"[cyan]{chunk.name}...", total=chunk.stat().st_size
                     )
-                    self._upload_one_asset(release_id, chunk, asset_task, progress)
-                    progress.update(asset_task, description=f"[green]{chunk.name} done")
+                    try:
+                        self._upload_one_asset(release_id, chunk, asset_task, progress)
+                    finally:
+                        progress.remove_task(asset_task)
         finally:
             shutil.rmtree(tmp_split, ignore_errors=True)
 
-        progress.update(task, description="[green]Uploaded to GitHub Releases")
+        progress.update(task, total=1, completed=1,
+                        description="[green]Uploaded to GitHub Releases ✓")
         return release_url
 
     def list_backups(self) -> list[dict]:
@@ -952,7 +1057,7 @@ class GitHubStorage:
             backups.append(manifest or {
                 "name": tag,
                 "date": rel.get("created_at", ""),
-                "label": rel.get("name", tag),
+                "label": "",
             })
         return backups
 
@@ -964,34 +1069,51 @@ class GitHubStorage:
         assets = sorted(release.get("assets", []), key=lambda a: a["name"])
         dest.mkdir(parents=True, exist_ok=True)
 
-        dl_task = progress.add_task("[cyan]Downloading from GitHub...", total=len(assets))
+        # One overall task (bytes) instead of one row per part: with ~25 parts the
+        # old per-file rows were taller than the screen and the display fell apart.
+        n_files     = len(assets)
+        total_bytes = sum(a.get("size", 0) for a in assets) or 1
+        task        = progress.add_task("[cyan]Downloading…", total=total_bytes)
+        done_bytes  = 0
 
-        for asset in assets:
+        for n, asset in enumerate(assets, 1):
             url  = self._asset_url(asset["id"])
-            out  = dest / asset["name"]
-            size = asset.get("size", 0)
-            f_task = progress.add_task(f"[cyan]{asset['name']}...", total=max(size, 1))
+            name = asset["name"]
+            out  = dest / name
+            tag  = f"{n}/{n_files}"
+            shown = re.sub(r"\.tar\.(gz|bz2|xz)", "", name) if is_narrow() else name
             last_err = None
             for attempt in range(8):
+                got = 0
                 try:
                     req = urllib.request.Request(url, headers=self._asset_headers())
-                    with urllib.request.urlopen(req, timeout=120) as r:
-                        data = r.read()
-                    out.write_bytes(data)
-                    progress.update(f_task, completed=size,
-                                    description=f"[green]{asset['name']} done")
+                    with urllib.request.urlopen(req, timeout=120) as r, open(out, "wb") as fh:
+                        while True:
+                            block = r.read(1 << 18)
+                            if not block:
+                                break
+                            fh.write(block)
+                            got += len(block)
+                            progress.update(
+                                task, completed=min(done_bytes + got, total_bytes),
+                                description=f"[cyan]{tag}  {escape(shown)}",
+                            )
+                    done_bytes += got
                     last_err = None
                     break
                 except Exception as e:
+                    if getattr(e, "errno", None) == errno.ENOSPC:
+                        raise
                     last_err = e
-                    progress.update(f_task,
-                        description=f"[yellow]Retry {attempt+1}/8 ({asset['name']})...")
+                    progress.update(
+                        task, completed=min(done_bytes, total_bytes),
+                        description=f"[yellow]{tag}  retry {attempt+1}/8",
+                    )
                     _time.sleep(15 * (attempt + 1))
             if last_err:
                 raise RuntimeError(
-                    f"Failed to download {asset['name']} after 8 attempts: {last_err}"
+                    f"Failed to download {name} after 8 attempts: {last_err}"
                 )
-            progress.advance(dl_task)
 
         chunk_re = _re.compile(r"^(.+)\.part(\d{4})$")
         groups: dict = {}
@@ -1000,23 +1122,20 @@ class GitHubStorage:
             if m:
                 groups.setdefault(m.group(1), []).append(f)
 
-        if groups:
-            assemble_task = progress.add_task(
-                "[cyan]Reassembling chunks...", total=len(groups)
-            )
-            for original_name, parts in groups.items():
-                parts.sort(key=lambda p: p.name)
-                out_file = dest / original_name
-                with open(out_file, "wb") as fout:
-                    for part in parts:
-                        fout.write(part.read_bytes())
-                        part.unlink()
-                progress.update(assemble_task,
-                    description=f"[green]Reassembled {original_name}",
-                    advance=1)
-            progress.update(assemble_task, description="[green]Chunks reassembled")
+        for original_name, parts in groups.items():
+            parts.sort(key=lambda p: p.name)
+            group_total = sum(p.stat().st_size for p in parts) or 1
+            progress.update(task, completed=0, total=group_total,
+                            description=f"[cyan]Joining {escape(original_name)}")
+            out_file = dest / original_name
+            with open(out_file, "wb") as fout:
+                for part in parts:
+                    with open(part, "rb") as fin:
+                        shutil.copyfileobj(fin, fout, 1 << 20)
+                    progress.advance(task, part.stat().st_size)
+                    part.unlink()
 
-        progress.update(dl_task, description="[green]Downloaded from GitHub")
+        progress.update(task, description="[green]Downloaded ✓")
 
     def delete_old(self, max_keep: int):
         releases = [
@@ -1223,15 +1342,7 @@ def cmd_backup(cfg: dict, label: str = ""):
                   ("Archiving & uploading directories…" if streaming else "Archiving directories…"))
     console.print()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("  {task.description}"),
-        BarColumn(bar_width=30),
-        TextColumn("[dim]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-        expand=False,
-    ) as progress:
+    with make_progress() as progress:
         archive_items = [
             ("home",    "Home directory (~)",       TERMUX_FILES),
             ("usr_etc", "Termux config (/usr/etc)", TERMUX_HOME / "etc"),
@@ -1292,13 +1403,7 @@ def cmd_backup(cfg: dict, label: str = ""):
 
     location = ""
     upload_error = None
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("  {task.description}"),
-        BarColumn(bar_width=30),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
+    with make_progress() as progress:
         try:
             location = storage.upload(tmp_dir, backup_name, progress)
             storage.delete_old(cfg.get("max_backups", 5))
@@ -1331,15 +1436,15 @@ def cmd_backup(cfg: dict, label: str = ""):
     console.print()
     console.print(Panel(
         f"[bold green]✓ Backup completed successfully![/bold green]\n\n"
-        f"  [dim]Name      :[/dim]  [white]{backup_name}[/white]\n"
-        f"  [dim]Date      :[/dim]  [white]{meta['date'][:19].replace('T', ' ')}[/white]\n"
-        f"  [dim]Packages  :[/dim]  [white]{len(pkgs)}[/white]\n"
-        f"  [dim]Total size:[/dim]  [white]{human_size(total_size)}[/white]\n"
-        f"  [dim]Storage   :[/dim]  [white]{cfg['storage'].upper()}[/white]\n"
-        f"  [dim]Location  :[/dim]  [white]{location}[/white]",
-        title="[bold yellow]  Backup Summary  [/bold yellow]",
+        f"[dim]Name    [/dim] [white]{escape(backup_name)}[/white]\n"
+        f"[dim]Date    [/dim] [white]{meta['date'][:19].replace('T', ' ')}[/white]\n"
+        f"[dim]Packages[/dim] [white]{len(pkgs)}[/white]\n"
+        f"[dim]Size    [/dim] [white]{human_size(total_size)}[/white]\n"
+        f"[dim]Storage [/dim] [white]{cfg['storage'].upper()}[/white]\n"
+        f"[dim]Location[/dim] [white]{escape(short_path(location))}[/white]",
+        title="[bold yellow]Backup Summary[/bold yellow]",
         border_style="green",
-        padding=(1, 2),
+        padding=(0, 2),
     ))
     log("INFO", f"Backup completed: {backup_name} ({human_size(total_size)})")
 
@@ -1357,32 +1462,7 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         return
 
     if not backup_name:
-        table = Table(
-            box=box.ROUNDED,
-            title="[bold yellow]Available Backups[/bold yellow]",
-            show_header=True,
-            header_style="bold cyan",
-            padding=(0, 1),
-        )
-        table.add_column("#",        style="dim",        width=4)
-        table.add_column("Name",     style="bold white",  min_width=30)
-        table.add_column("Date",     style="green")
-        table.add_column("Label",    style="yellow")
-        table.add_column("Packages", style="cyan",       justify="right")
-        table.add_column("Storage",  style="blue")
-
-        for i, b in enumerate(backups, 1):
-            table.add_row(
-                str(i),
-                b.get("name", "—"),
-                b.get("date", "—")[:19].replace("T", " "),
-                b.get("label", "") or "—",
-                str(len(b.get("packages", []))),
-                b.get("storage", cfg["storage"]).upper(),
-            )
-
-        console.print(table)
-        console.print()
+        print_backup_list(backups)
 
         choice = Prompt.ask("  [bold]Enter backup number or name[/bold]", default="1")
         try:
@@ -1405,20 +1485,22 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
 
     console.print()
     console.print("  [bold]Step 1/4[/bold]  Downloading backup…")
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("  {task.description}"),
-        BarColumn(bar_width=30),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
+    t0 = time.monotonic()
+    with make_progress(transient=True, percent=True) as progress:
         try:
             storage.download(backup_name, tmp_dir, progress)
         except Exception as e:
+            progress.stop()
             console.print(f"  [red]✗ Download failed: {escape(str(e))}[/red]")
             log("ERROR", f"Download failed: {e}")
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
+    dl_files = [f for f in tmp_dir.iterdir() if f.is_file()]
+    console.print(
+        f"  {status_icon(True)} Downloaded {len(dl_files)} files "
+        f"[dim]({human_size(sum(f.stat().st_size for f in dl_files))}, "
+        f"{fmt_elapsed(time.monotonic() - t0)})[/dim]"
+    )
 
     manifest = read_manifest(tmp_dir)
     if not manifest:
@@ -1438,7 +1520,7 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         cs = sha256(archive)
         ok = cs == info.get("checksum", cs)
         icon = status_icon(ok)
-        console.print(f"  {icon} {info['archive']}  [dim]{cs[:16]}…[/dim]")
+        console.print(f"  {icon} {info['archive']}  [dim]{cs[:12]}…[/dim]")
         if not ok:
             all_ok = False
 
@@ -1449,30 +1531,25 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
 
     console.print()
     console.print(Panel(
-        f"  [bold]About to restore:[/bold]\n\n"
-        f"  Backup   : [white]{backup_name}[/white]\n"
-        f"  Date     : [white]{manifest.get('date', '—')[:19].replace('T', ' ')}[/white]\n"
-        f"  Packages : [white]{len(manifest.get('packages', []))}[/white]\n"
-        f"  Archives : [white]{len(manifest.get('files', {}))}[/white]",
-        title="[bold yellow]  Restore Preview  [/bold yellow]",
+        f"[dim]Backup  [/dim] [white]{escape(backup_name)}[/white]\n"
+        f"[dim]Date    [/dim] [white]{manifest.get('date', '—')[:19].replace('T', ' ')}[/white]\n"
+        f"[dim]Packages[/dim] [white]{len(manifest.get('packages', []))}[/white]\n"
+        f"[dim]Archives[/dim] [white]{len(manifest.get('files', {}))}[/white]  "
+        f"[dim]({human_size(_backup_size(manifest))})[/dim]",
+        title="[bold yellow]Restore Preview[/bold yellow]",
         border_style="yellow",
-        padding=(1, 2),
+        padding=(0, 2),
     ))
+    console.print("  [yellow]⚠ This will overwrite existing files.[/yellow]")
 
-    if not Confirm.ask("\n  [bold yellow]Proceed with restore? This will overwrite existing files.[/bold yellow]"):
+    if not Confirm.ask("  [bold yellow]Proceed with restore?[/bold yellow]"):
         console.print("  [dim]Restore cancelled.[/dim]")
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
     console.print()
     console.print("  [bold]Step 3/4[/bold]  Extracting archives…")
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("  {task.description}"),
-        BarColumn(bar_width=30),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
+    with make_progress() as progress:
         # Build the set of destinations this app is actually willing to restore into.
         # Manifest-supplied "source" values are attacker-controlled backup content
         # and must never be trusted as an extraction root — only used to double
@@ -1511,11 +1588,11 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
 
     console.print()
     console.print(Panel(
-        "[bold green]✓ Restore completed successfully![/bold green]\n\n"
-        "  Please restart Termux for all changes to take effect.",
-        title="[bold yellow]  Restore Summary  [/bold yellow]",
+        "[bold green]✓ Restore completed successfully![/bold green]\n"
+        "Please restart Termux for all changes to take effect.",
+        title="[bold yellow]Restore Summary[/bold yellow]",
         border_style="green",
-        padding=(1, 2),
+        padding=(0, 2),
     ))
     log("INFO", f"Restore completed from: {backup_name}")
 
@@ -1534,17 +1611,17 @@ def cmd_list(cfg: dict):
 
     for i, b in enumerate(backups, 1):
         tbl = Table(
-            box=box.ROUNDED,
+            box=None if is_narrow() else box.ROUNDED,
             show_header=False,
-            padding=(0, 2),
+            padding=(0, 1),
             title=f"[bold white]Backup #{i}[/bold white]",
         )
-        tbl.add_column("Key",   style="dim cyan",  min_width=20)
+        tbl.add_column("Key",   style="dim cyan",  min_width=12)
         tbl.add_column("Value", style="bold white")
 
-        tbl.add_row("Name",        b.get("name", "—"))
+        tbl.add_row("Name",        escape(str(b.get("name", "—"))))
         tbl.add_row("Date",        b.get("date", "—")[:19].replace("T", " "))
-        tbl.add_row("Label",       b.get("label", "") or "—")
+        tbl.add_row("Label",       escape(_backup_label(b)) or "—")
         tbl.add_row("Packages",    str(len(b.get("packages", []))))
         tbl.add_row("Files",       str(len(b.get("files", {}))))
         tbl.add_row("Version",     b.get("version", "—"))
@@ -1569,28 +1646,7 @@ def cmd_delete(cfg: dict, backup_name: str = ""):
         console.print("  [yellow]No backups found.[/yellow]")
         return
 
-    table = Table(
-        box=box.ROUNDED,
-        title="[bold yellow]Available Backups[/bold yellow]",
-        show_header=True,
-        header_style="bold cyan",
-        padding=(0, 1),
-    )
-    table.add_column("#",     style="dim",        width=4)
-    table.add_column("Name",  style="bold white",  min_width=30)
-    table.add_column("Date",  style="green")
-    table.add_column("Label", style="yellow")
-
-    for i, b in enumerate(backups, 1):
-        table.add_row(
-            str(i),
-            b.get("name", "—"),
-            b.get("date", "—")[:19].replace("T", " "),
-            b.get("label", "") or "—",
-        )
-
-    console.print(table)
-    console.print()
+    print_backup_list(backups)
 
     if not backup_name:
         choice = Prompt.ask("  [bold]Enter backup number or name to delete[/bold]")
@@ -1624,9 +1680,9 @@ def cmd_setup():
     cfg = load_config()
 
     console.print("  Choose your [bold]storage backend[/bold]:\n")
-    console.print("  [bold cyan][1][/bold cyan]  Local storage  (saves on device)")
-    console.print("  [bold cyan][2][/bold cyan]  Google Drive   (via rclone)")
-    console.print("  [bold cyan][3][/bold cyan]  GitHub         (private repository) [bold yellow]★ Recommended[/bold yellow]")
+    console.print("  [bold cyan][1][/bold cyan]  Local storage   [dim]on device[/dim]")
+    console.print("  [bold cyan][2][/bold cyan]  Google Drive    [dim]via rclone[/dim]")
+    console.print("  [bold cyan][3][/bold cyan]  GitHub          [dim]private repo[/dim] [bold yellow]★ Recommended[/bold yellow]")
     console.print()
 
     choice = Prompt.ask("  Storage", choices=["1", "2", "3"], default="3")
@@ -1654,21 +1710,23 @@ def cmd_setup():
 
     elif cfg["storage"] == "github":
         console.print()
-        console.print(
-            "  [dim]Create a [bold]private repository[/bold] on GitHub and generate a"
+        note(
+            "[dim]Create a [bold]private repository[/bold] on GitHub and generate a"
             " Personal Access Token with [white]repo[/white] scope.[/dim]"
         )
-        console.print("  [dim]Token URL:[/dim] [white]https://github.com/settings/tokens[/white]")
+        console.print("  [dim]Token page:[/dim]")
+        console.print("  [white]https://github.com/settings/tokens[/white]", soft_wrap=True)
         console.print()
 
         existing_token = cfg.get("github_token", "")
         if existing_token:
-            console.print("  [dim]A token is already saved. Press Enter to keep it, or paste a new one.[/dim]")
+            note("[dim]A token is already saved. Press Enter to keep it, or paste a new one.[/dim]")
         while True:
             val = Prompt.ask(
-                "  GitHub Personal Access Token",
+                "  GitHub token",
                 default=existing_token,
                 password=True,
+                show_default=False,      # never print a saved token back to the screen
             ).strip()
             if val:
                 cfg["github_token"] = val
@@ -1677,7 +1735,9 @@ def cmd_setup():
 
         while True:
             val = Prompt.ask(
-                "  GitHub repo (owner/repo)", default=cfg.get("github_repo", "")
+                "  GitHub repo [dim](owner/repo)[/dim]",
+                default=cfg.get("github_repo", ""),
+                show_default=bool(cfg.get("github_repo", "")),
             ).strip()
             if not val:
                 console.print("  [red]✗ Repo cannot be empty. Enter in format: username/repo-name[/red]")
@@ -1693,8 +1753,9 @@ def cmd_setup():
         )
 
     console.print()
+    console.print("  [dim]Compression:  gz = fast · bz2 = balanced · xz = best[/dim]")
     cfg["compression"] = Prompt.ask(
-        "  Compression (gz=fast, bz2=balanced, xz=best)",
+        "  Compression",
         choices=["gz", "bz2", "xz"], default=cfg.get("compression", "gz")
     )
     while True:
@@ -1706,11 +1767,16 @@ def cmd_setup():
 
     console.print()
     current_patterns = cfg.get("exclude_patterns", [])
-    preview = ", ".join(current_patterns[:5]) + ("…" if len(current_patterns) > 5 else "")
-    console.print(f"  [dim]Current exclude patterns: {preview}[/dim]")
+    preview = ", ".join(current_patterns[:4])
+    if len(current_patterns) > 4:
+        preview += f" … +{len(current_patterns) - 4} more"
+    note(f"[dim]Exclude patterns ({len(current_patterns)}): {escape(preview)}[/dim]")
     if Confirm.ask("  Customise exclude patterns?", default=False):
-        console.print("  [dim]Enter patterns separated by commas (leave blank to keep defaults):[/dim]")
-        raw = Prompt.ask("  Patterns", default=",".join(current_patterns))
+        console.print()
+        console.print(Padding(escape(", ".join(current_patterns)), (0, 0, 0, 4)), style="dim")
+        console.print()
+        note("[dim]Type the new list separated by commas. Press Enter to keep the list above.[/dim]")
+        raw = Prompt.ask("  Patterns", default="", show_default=False)
         if raw.strip():
             cfg["exclude_patterns"] = [p.strip() for p in raw.split(",") if p.strip()]
 
@@ -1718,9 +1784,10 @@ def cmd_setup():
     console.print()
     console.print(Panel(
         f"[bold green]✓ Configuration saved![/bold green]\n\n"
-        f"  Config file: [white]{CONFIG_FILE}[/white]\n"
-        f"  Storage    : [white]{cfg['storage'].upper()}[/white]",
-        border_style="green", padding=(1, 2)
+        f"[dim]Storage[/dim] [white]{cfg['storage'].upper()}[/white]\n"
+        f"[dim]Config [/dim] [white]{escape(short_path(CONFIG_FILE))}[/white]",
+        title="[bold yellow]Setup Summary[/bold yellow]",
+        border_style="green", padding=(0, 2)
     ))
     log("INFO", f"Setup complete. Storage: {cfg['storage']}")
 

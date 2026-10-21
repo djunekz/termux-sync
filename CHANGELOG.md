@@ -9,6 +9,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Cleaner, phone-friendly output.** All progress bars now use a single non-wrapping line per task: the label is cut with "…" instead of pushing the bar and timer onto a second line.
+- Backup picker (`restore`, `delete`) no longer overflows the screen. On narrow terminals each backup is shown as a compact two-line card (name, then date · packages · size · label); on wide terminals it stays a table, now with Size and Pkgs columns. The redundant "Storage" column was removed.
+- `setup`: wrapped text keeps its indentation, the exclude-pattern list is shown as a short summary (full list only when you choose to edit it), and the compression hint is its own line.
+- Summary panels (backup, restore, setup) are more compact and show short paths (`~/.config/...`).
+- The `TERMUX` ASCII banner falls back to a one-line title on terminals too narrow to draw it.
+- `restore` step 4 now shows which package is being installed (`12/496  git`) and reports how many could not be installed; failures are written to the log.
+
+### Fixed
+- **`restore` from GitHub flooded the screen.** Every downloaded part (25+) kept its own progress row, so the display grew taller than the screen and was drawn over itself. Downloads now use one overall progress bar (bytes, current part, elapsed time) that disappears when finished and is replaced by a single "Downloaded N files (size, time)" line.
+- GitHub downloads are streamed to disk in blocks instead of being read fully into memory, and parts are joined without loading them into RAM. A full disk now stops immediately instead of retrying.
+- `backup` to GitHub: finished upload rows no longer pile up in the progress display.
+- Backups without a manifest no longer show their tag name as a duplicate "Label".
+
+### Security
+- `setup` no longer prints a saved GitHub token back to the screen when you re-run it (the default value is hidden).
+
 ---
 
 ## [1.2.8] - 2026-10-15
