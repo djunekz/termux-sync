@@ -21,7 +21,6 @@ import hashlib
 import tarfile
 import argparse
 import datetime
-import threading
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -31,17 +30,12 @@ try:
     from rich.panel import Panel
     from rich.progress import (
         Progress, SpinnerColumn, BarColumn,
-        TextColumn, TimeElapsedColumn, FileSizeColumn,
-        TransferSpeedColumn, TaskProgressColumn,
+        TextColumn, TimeElapsedColumn, TaskProgressColumn,
     )
     from rich.table import Table, Column
     from rich.prompt import Prompt, Confirm
-    from rich.text import Text
     from rich import box
-    from rich.live import Live
-    from rich.columns import Columns
     from rich.rule import Rule
-    from rich.syntax import Syntax
     from rich.align import Align
     from rich.markup import escape
     from rich.padding import Padding
@@ -782,7 +776,8 @@ class GitHubStorage:
         return f"{self.API}/repos/{self.repo}/releases/assets/{asset_id}"
 
     def _api(self, method: str, endpoint: str, **kwargs):
-        import urllib.request, urllib.error
+        import urllib.request
+        import urllib.error
         url  = f"{self.API}{endpoint}"
         data = json.dumps(kwargs.get("json", {})).encode() if "json" in kwargs else None
         req  = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
@@ -944,7 +939,9 @@ class GitHubStorage:
 
     def _upload_one_asset(self, release_id: int, local_path: Path,
                           progress_task, progress: Progress):
-        import urllib.request, urllib.error, time as _time
+        import urllib.request
+        import urllib.error
+        import time as _time
         upload_url = (
             f"https://uploads.github.com/repos/{self.repo}/releases/{release_id}/assets"
             f"?name={local_path.name}"
@@ -1062,7 +1059,9 @@ class GitHubStorage:
         return backups
 
     def download(self, backup_name: str, dest: Path, progress: Progress):
-        import urllib.request, re as _re, time as _time
+        import urllib.request
+        import re as _re
+        import time as _time
         release = self._get_release_by_tag(backup_name)
         if not release:
             raise RuntimeError(f"No GitHub Release found for tag: {backup_name}")
@@ -2017,7 +2016,7 @@ def cmd_clear_logs():
         return
 
     LOG_FILE.write_text("")
-    console.print(f"\n  [bold green]✓ Log file cleared.[/bold green]\n")
+    console.print("\n  [bold green]✓ Log file cleared.[/bold green]\n")
     log("INFO", "Log file cleared by user")
 
 

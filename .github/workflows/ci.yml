@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    name: Lint & Syntax Check
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -19,22 +19,25 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: |
-          pip install rich ruff
+        run: pip install -e ".[dev]"
 
       - name: Check syntax
         run: python -m py_compile src/termux_sync/__init__.py
 
       - name: Lint with ruff
-        run: ruff check src/termux_sync/ --select E,F,W --ignore E501 --target-version py39
+        run: ruff check src tests
+
+      - name: Type check with mypy
+        run: mypy
         continue-on-error: true
 
   test:
-    name: Import & Entry Point Test
+    name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v7
@@ -45,15 +48,21 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package
-        run: |
-          pip install hatchling
-          pip install -e .
+        run: pip install -e ".[dev]"
 
-      - name: Test import
-        run: python -c "import termux_sync; print('Import OK')"
+      - name: Run tests with coverage
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
 
-      - name: Test --version flag
+      - name: Check entry point
         run: termux-sync --version
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   build:
     name: Build Distribution

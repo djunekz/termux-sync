@@ -69,12 +69,43 @@ There is no build step. The main application is `termux-sync.py` and the control
 
 ---
 
+## Running Tests
+
+Install the development dependencies from the repository root:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Run the test suite:
+
+```bash
+pytest
+```
+
+Run it with a coverage report:
+
+```bash
+pytest --cov --cov-report=term-missing
+```
+
+Check linting and types before opening a pull request:
+
+```bash
+ruff check src tests
+mypy
+```
+
+Tests live in `tests/` and import the package from `src/termux_sync`. They must not touch your real `~/.config/termux-sync`; use the `config_home` fixture from `tests/conftest.py` for anything that reads or writes configuration or logs. When you fix a bug or add a feature, add a test that fails without your change. CI runs the same commands on Python 3.9 through 3.13.
+
+---
+
 ## Submitting a Pull Request
 
 1. Fork the repository and create a branch from `main`.
 2. Use a descriptive branch name such as `fix/restore-checksum` or `feat/bz2-compression`.
 3. Make your changes. Keep each pull request focused on a single concern.
-4. Test your changes on a real Termux environment if possible.
+4. Run `pytest` and `ruff check src tests`, and test your changes on a real Termux environment if possible.
 5. Update documentation in `README.md` or other `.md` files if your change affects user-facing behavior.
 6. Open a pull request against the `main` branch and fill in the pull request template.
 
