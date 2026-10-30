@@ -2,19 +2,50 @@
   <img src="https://raw.githubusercontent.com/djunekz/termux-sync/main/assets/logo.svg" alt="termux-sync logo" width="480">
 </p>
 
-# termux-sync
-
-Backup and restore your entire Termux environment across devices.
-
 [![RepoGrade](https://www.repo-grade.com/api/badge/djunekz/termux-sync)](https://www.repo-grade.com/report/djunekz/termux-sync)
+[![PyPI version](https://img.shields.io/pypi/v/termux-sync?logo=pypi&logoColor=white&color=3775A9)](https://pypi.org/project/termux-sync/)
+[![PyPI downloads](https://img.shields.io/pepy/dt/termux-sync?logo=pypi&logoColor=white&label=downloads)](https://pepy.tech/project/termux-sync)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?badge.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?badge.svg)](LICENSE)
 [![Termux](https://img.shields.io/badge/Termux-compatible-brightgreen?badge.svg)](https://termux.dev)
-[![Release to PyPI](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml)
 
+[![CI](https://github.com/djunekz/termux-sync/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/djunekz/termux-sync/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/codeql.yml)
+[![Release to PyPI](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml)
+[![Codecov](https://codecov.io/gh/djunekz/termux-sync/graph/badge.svg)](https://codecov.io/gh/djunekz/termux-sync)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025e8c?logo=dependabot&logoColor=white)](https://github.com/djunekz/termux-sync/security/dependabot)
+
+[![GitHub release](https://img.shields.io/github/v/release/djunekz/termux-sync?logo=github)](https://github.com/djunekz/termux-sync/releases/latest)
+[![Last commit](https://img.shields.io/github/last-commit/djunekz/termux-sync?logo=git&logoColor=white)](https://github.com/djunekz/termux-sync/commits/main)
+[![Stars](https://img.shields.io/github/stars/djunekz/termux-sync?style=flat&logo=github)](https://github.com/djunekz/termux-sync/stargazers)
+[![Forks](https://img.shields.io/github/forks/djunekz/termux-sync?style=flat&logo=github)](https://github.com/djunekz/termux-sync/network/members)
+[![Issues](https://img.shields.io/github/issues/djunekz/termux-sync?logo=github)](https://github.com/djunekz/termux-sync/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/djunekz/termux-sync?logo=github)](https://github.com/djunekz/termux-sync/pulls)
+[![Repo size](https://img.shields.io/github/repo-size/djunekz/termux-sync)](https://github.com/djunekz/termux-sync)
+
+[![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Android-3DDC84?logo=android&logoColor=white)](https://termux.dev)
+[![Storage](https://img.shields.io/badge/storage-local%20%7C%20Google%20Drive%20%7C%20GitHub-blue)](#setup)
+[![Terminal UI](https://img.shields.io/badge/UI-rich%20terminal-8A2BE2)](https://github.com/Textualize/rich)
+[![Checksums](https://img.shields.io/badge/integrity-SHA--256-success)](#backup-structure)
+
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Type checked: mypy](https://img.shields.io/badge/type%20checked-mypy-2a6db2)](https://mypy-lang.org/)
+[![Tested with pytest](https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+[![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen)](https://github.com/djunekz/termux-sync/commits/main)
+
+
+# termux-sync
+
+Backup and restore your entire Termux environment across devices.
 termux-sync captures your installed packages, home directory, and configuration files into a portable backup that can be fully restored on any device. Backups can be stored locally, uploaded to Google Drive via rclone, or pushed to a private GitHub repository.
 
 ---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/djunekz/termux-sync/main/assets/menu.svg" alt="termux-sync command menu" width="720">
+</p>
 
 ## Features
 
@@ -383,7 +414,8 @@ termux-sync/
 ├── src/termux_sync/
 │   └── __init__.py         PyPI package entry point (mirrors termux-sync.py)
 ├── assets/
-│   └── logo.svg            Project logo used in this README
+│   ├── logo.svg            Project logo used in this README
+│   └── menu.svg            Command menu preview used in this README
 ├── .env.example            Reference for supported environment variables
 ├── install.sh              Local installer for manual setup
 ├── tsctl                   Control tool (install, updater, uninstall, status)
