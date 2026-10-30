@@ -54,7 +54,7 @@ except ImportError:
     )
     sys.exit(1)
 
-VERSION       = "1.3.0"
+VERSION       = "1.3.5"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
