@@ -11,6 +11,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.5] - 2026-10-30
+
+### Added
+- Automated test suite in `tests/` with 242 tests and about 92% line coverage of `src/termux_sync/__init__.py`. It covers formatting helpers, config and manifest handling, archive creation and extraction (including unsafe tar member rejection), error explanations, the command line interface, the local, Google Drive and GitHub storage backends, the full `backup`, `restore`, `list` and `delete` flows, and the interactive `setup`, `schedule`, `daemon`, `clear-cache`, `check`, `status`, `logs`, `export-config` and `import-config` commands. No test touches the real `~/.config/termux-sync`, the network or `rclone`.
+- `dev` extra in `pyproject.toml` (`pytest`, `pytest-cov`, `ruff`, `mypy`) together with pytest, coverage, ruff and mypy configuration.
+- Coverage reporting in CI: tests run with `pytest --cov` and the report is uploaded to Codecov from the Python 3.13 job.
+- CI step that runs `termux-sync --version` after installing the package, to verify the entry point.
+- CI type check with `mypy` (non-blocking for now, there are existing findings to clean up).
+- `uv.lock`, so development installs are reproducible.
+- `.python-version` pinning the development runtime to Python 3.13.
+- `.gitignore` for Python build output, virtual environments, `.env` files, tool caches, coverage output and editor files.
+- "Running Tests" section in `CONTRIBUTING.md` describing how to install the development dependencies, run the tests, and run `ruff` and `mypy`. The pull request checklist now mentions running them.
+- `.env.example` documenting the supported environment variables (`TERMUX_SYNC_DEBUG`, `PREFIX`, `HOME`, `TMPDIR`).
+- `assets/logo.svg`, a project logo displayed at the top of the README.
+- "Environment Variables" section in the README with a reference table for each variable.
+
+### Changed
+- **Minimum supported Python is now 3.10** (was 3.9). Updated in `requires-python`, the package classifiers, the `ruff` and `mypy` targets, the CI test matrix (now 3.10 to 3.13) and the documentation. Python 3.9 is end-of-life, and the patched `pytest` release does not support it.
+- CI lint job now fails the build on `ruff` findings (previously non-blocking) and also lints `tests/`.
+- CI test job now runs on Python 3.10, 3.11, 3.12 and 3.13 with `fail-fast` disabled, so one failing version no longer hides the others.
+- Removed unused imports from `src/termux_sync/__init__.py` (`threading`, `FileSizeColumn`, `TransferSpeedColumn`, `Text`, `Live`, `Columns`, `Syntax`) and fixed minor `ruff` findings (several imports on one line, an f-string without placeholders). No behaviour change.
+- README project structure now lists `assets/` and `.env.example`.
+
+### Fixed
+- Tests no longer depend on running as root: temporary files are redirected to a per-test directory instead of the Termux default path, and the permission test now uses an unreadable file instead of an unreadable directory. This fixed the three failures seen on GitHub Actions.
+- Tests: upload requests to GitHub are now identified by parsing the URL and comparing its hostname instead of searching for a substring, resolving three CodeQL "Incomplete URL substring sanitization" alerts in `tests/test_github_network.py`.
+- Tests: removed a side-effect from an `assert` statement in `tests/test_storage.py` so the write still runs when Python is started with `-O`, resolving a CodeQL "An assert statement has a side-effect" alert.
+
+### Security
+- Development dependency `pytest` raised to `>=9.0.3` to fix the vulnerable `/tmp/pytest-of-{user}` directory handling (CVE-2025-71176, GHSA-6w46-j5rx-g56g, Dependabot alert #1). The lockfile no longer contains the affected 8.x release. This only affects development environments, not installed copies of termux-sync.
+
+---
+
 ## [1.3.0] - 2026-10-21
 
 ### Changed
