@@ -52,13 +52,16 @@ def test_create_archive_into_sink(termux_tree):
 
 
 def test_create_archive_restores_permissions(termux_tree, tmp_path):
-    locked = termux_tree / "home" / "projects"
+    locked = termux_tree / "home" / "projects" / "notes.txt"
     locked.chmod(0o000)
     try:
         with ts.make_progress() as progress:
-            ts.create_archive(termux_tree / "home", tmp_path / "h.tar.gz", "gz", [], "home", progress)
+            result = ts.create_archive(termux_tree / "home", tmp_path / "h.tar.gz", "gz", [], "home", progress)
+        with tarfile.open(result) as tf:
+            assert "home/projects/notes.txt" in tf.getnames()
+        assert locked.stat().st_mode & 0o777 == 0o000
     finally:
-        locked.chmod(0o755)
+        locked.chmod(0o644)
 
 
 def test_extract_archive_round_trip(termux_tree, tmp_path):

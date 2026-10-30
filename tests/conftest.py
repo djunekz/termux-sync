@@ -3,6 +3,13 @@ import pytest
 import termux_sync as ts
 
 
+@pytest.fixture(autouse=True)
+def isolated_tmpdir(tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch-tmp"
+    scratch.mkdir()
+    monkeypatch.setenv("TMPDIR", str(scratch))
+
+
 @pytest.fixture
 def config_home(tmp_path, monkeypatch):
     monkeypatch.setattr(ts, "CONFIG_DIR", tmp_path)

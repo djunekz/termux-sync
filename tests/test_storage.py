@@ -146,9 +146,11 @@ class FakeStorage:
 
 
 def test_part_writer_streams_parts_and_cleans_up(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
     storage = FakeStorage()
     with make_progress() as progress:
-        writer = ts._PartWriter(storage, 1, "archive.tar.gz", tmp_path, progress)
+        writer = ts._PartWriter(storage, 1, "archive.tar.gz", work, progress)
         assert writer.writable() is True
         assert writer.write(b"a" * 25) == 25
         writer.finish()
@@ -159,7 +161,7 @@ def test_part_writer_streams_parts_and_cleans_up(tmp_path):
     ]
     assert b"".join(data for _, data in storage.uploaded) == b"a" * 25
     assert writer.total == 25
-    assert list(tmp_path.iterdir()) == []
+    assert list(work.iterdir()) == []
 
 
 def test_part_writer_small_archive_is_single_plain_file(tmp_path):
@@ -172,12 +174,14 @@ def test_part_writer_small_archive_is_single_plain_file(tmp_path):
 
 
 def test_part_writer_abort_removes_partial_file(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
     storage = FakeStorage()
     with make_progress() as progress:
-        writer = ts._PartWriter(storage, 1, "x.tar.gz", tmp_path, progress)
+        writer = ts._PartWriter(storage, 1, "x.tar.gz", work, progress)
         writer.write(b"abc")
         writer.abort()
-    assert list(tmp_path.iterdir()) == []
+    assert list(work.iterdir()) == []
 
 
 def test_part_writer_wraps_upload_failure(tmp_path):
