@@ -152,7 +152,8 @@ def test_part_writer_streams_parts_and_cleans_up(tmp_path):
     with make_progress() as progress:
         writer = ts._PartWriter(storage, 1, "archive.tar.gz", work, progress)
         assert writer.writable() is True
-        assert writer.write(b"a" * 25) == 25
+        written = writer.write(b"a" * 25)
+        assert written == 25
         writer.finish()
     assert [name for name, _ in storage.uploaded] == [
         "archive.tar.gz.part0000",

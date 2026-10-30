@@ -2,6 +2,7 @@ import errno
 import io
 import json
 import urllib.error
+import urllib.parse
 
 import pytest
 
@@ -21,6 +22,13 @@ class FakeResponse:
 
     def __exit__(self, *exc):
         return False
+
+
+UPLOAD_HOST = "uploads.github.com"
+
+
+def is_upload_url(url):
+    return urllib.parse.urlparse(url).hostname == UPLOAD_HOST
 
 
 def http_error(code, body=b"{}"):
@@ -184,7 +192,7 @@ def test_upload_creates_release_and_skips_existing_assets(github, router, tmp_pa
     with ts.make_progress() as progress:
         url = github.upload(source, "b1", progress)
     assert url == "https://github.com/a/b/releases/b1"
-    uploads = [req for req in router.requests if "uploads.github.com" in req[1]]
+    uploads = [req for req in router.requests if is_upload_url(req[1])]
     assert len(uploads) == 2
 
 
@@ -197,7 +205,7 @@ def test_upload_reuses_existing_release_and_assets(github, router, tmp_path):
     router.add("GET", "/releases/tags/b1", release)
     with ts.make_progress() as progress:
         assert github.upload(source, "b1", progress) == "u"
-    assert not [req for req in router.requests if "uploads.github.com" in req[1]]
+    assert not [req for req in router.requests if is_upload_url(req[1])]
 
 
 def test_list_backups_reads_manifest_asset(github, router):
@@ -279,7 +287,7 @@ def test_streaming_backup_to_github(termux_tree, local_cfg, router, capsys):
     out = capsys.readouterr().out
     assert "Streaming upload" in out
     assert "Backup completed successfully" in out
-    names = [url.split("name=")[1] for method, url, _ in router.requests if "uploads.github.com" in url]
+    names = [url.split("name=")[1] for method, url, _ in router.requests if is_upload_url(url)]
     assert any(name.startswith("home.tar") for name in names)
     assert "manifest.json" in names
 
