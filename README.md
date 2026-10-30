@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/djunekz/termux-sync/main/assets/logo.svg" alt="termux-sync logo" width="480">
+</p>
+
 # termux-sync
 
 Backup and restore your entire Termux environment across devices.
@@ -296,6 +300,19 @@ Location: `~/.config/termux-sync/config.json`
 
 ---
 
+## Environment Variables
+
+A reference file is provided at [`.env.example`](.env.example). All variables are optional; Termux sets sensible defaults.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TERMUX_SYNC_DEBUG` | *(empty)* | Set to any non-empty value to enable debug output |
+| `PREFIX` | `/data/data/com.termux/files/usr` | Termux installation prefix |
+| `HOME` | `/data/data/com.termux/files/home` | Home directory used as the backup source |
+| `TMPDIR` | `/data/data/com.termux/files/usr/tmp` | Temporary directory used while building and restoring archives |
+
+---
+
 ## Backup Structure
 
 Each backup is a directory containing:
@@ -364,6 +381,9 @@ termux-sync/
 ├── termux-sync.py          Main application
 ├── src/termux_sync/
 │   └── __init__.py         PyPI package entry point (mirrors termux-sync.py)
+├── assets/
+│   └── logo.svg            Project logo used in this README
+├── .env.example            Reference for supported environment variables
 ├── install.sh              Local installer for manual setup
 ├── tsctl                   Control tool (install, updater, uninstall, status)
 ├── pyproject.toml          PyPI package configuration
