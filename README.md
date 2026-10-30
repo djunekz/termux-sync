@@ -6,6 +6,7 @@
 
 Backup and restore your entire Termux environment across devices.
 
+[![RepoGrade](https://www.repo-grade.com/api/badge/djunekz/termux-sync)](https://www.repo-grade.com/report/djunekz/termux-sync)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?badge.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?badge.svg)](LICENSE)
 [![Termux](https://img.shields.io/badge/Termux-compatible-brightgreen?badge.svg)](https://termux.dev)
