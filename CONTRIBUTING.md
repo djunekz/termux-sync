@@ -96,7 +96,7 @@ ruff check src tests
 mypy
 ```
 
-Tests live in `tests/` and import the package from `src/termux_sync`. They must not touch your real `~/.config/termux-sync`; use the `config_home` fixture from `tests/conftest.py` for anything that reads or writes configuration or logs. When you fix a bug or add a feature, add a test that fails without your change. CI runs the same commands on Python 3.9 through 3.13.
+Tests live in `tests/` and import the package from `src/termux_sync`. They must not touch your real `~/.config/termux-sync`; use the `config_home` fixture from `tests/conftest.py` for anything that reads or writes configuration or logs. When you fix a bug or add a feature, add a test that fails without your change. CI runs the same commands on Python 3.10 through 3.13.
 
 ---
 

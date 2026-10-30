@@ -2,7 +2,7 @@
 
 Backup and restore your entire Termux environment across devices.
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue?badge.svg)](https://www.python.org/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?badge.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?badge.svg)](LICENSE)
 [![Termux](https://img.shields.io/badge/Termux-compatible-brightgreen?badge.svg)](https://termux.dev)
 [![Release to PyPI](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml/badge.svg?branch=main)](https://github.com/djunekz/termux-sync/actions/workflows/release-pypi.yml)
@@ -37,7 +37,7 @@ termux-sync captures your installed packages, home directory, and configuration 
 ## Requirements
 
 ```
-Python 3.9+
+Python 3.10+
 python-pip
 tar (included in Termux)
 ```

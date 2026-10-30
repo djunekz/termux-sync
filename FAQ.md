@@ -42,7 +42,7 @@ This removes the launcher, install directory, config directory, and any shell al
 
 **What Python version is required?**
 
-Python 3.9 or later. The only third-party dependency is `rich`, which is installed automatically on first run if missing.
+Python 3.10 or later. The only third-party dependency is `rich`, which is installed automatically on first run if missing.
 
 ---
 
