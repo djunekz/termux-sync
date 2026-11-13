@@ -1945,11 +1945,6 @@ def cmd_daemon(cfg: dict):
     log("INFO", "Daemon started")
 
     while True:
-        sched = load_schedule()
-        if not sched.get("enabled"):
-            log("INFO", "Daemon stopped: auto-backup was disabled")
-            console.print("[yellow]Auto-backup was disabled. Daemon stopped.[/yellow]")
-            return
         now    = datetime.datetime.now()
         target = now.replace(hour=sched["hour"], minute=sched["minute"], second=0, microsecond=0)
         if target <= now:

@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- The daemon no longer re-reads the schedule at the top of every loop before waiting; it checks it once after each wait, which is when a change matters. Behaviour is otherwise the same as in 1.3.6.
+- More regression tests for the 1.3.6 fixes (temporary folder selection, config permissions, unsafe archive names in a manifest, invalid names in `delete`, hard link and extraction failures), to bring patch coverage back above the Codecov target.
+
 ---
 
 ## [1.3.6] - 2026-11-13
