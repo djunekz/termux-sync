@@ -1,0 +1,105 @@
+name: Repo Bot
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: repo-bot
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check and repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install latest dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: ruff check src tests
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: pytest -q
+
+      - name: Latest GitHub release
+        id: release
+        run: |
+          TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)
+          PUBLISHED=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .published_at 2>/dev/null || true)
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "published=${PUBLISHED}" >> "$GITHUB_OUTPUT"
+
+      - name: Run repository checks
+        id: check
+        env:
+          LATEST_RELEASE: ${{ steps.release.outputs.tag }}
+          LATEST_RELEASE_AT: ${{ steps.release.outputs.published }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+        run: python .github/scripts/repo_check.py
+
+      - name: Open pull request when termux-sync.py drifted
+        if: steps.check.outputs.mirror_drift == 'true'
+        run: |
+          BRANCH="bot/sync-standalone-script"
+          OPEN=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$OPEN" ]; then
+            echo "Pull request #$OPEN is already open"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          cp src/termux_sync/__init__.py termux-sync.py
+          git add termux-sync.py
+          git commit -m "chore: sync termux-sync.py with the package"
+          git push --force origin "$BRANCH"
+          gh pr create \
+            --base "${GITHUB_REF_NAME}" \
+            --head "$BRANCH" \
+            --title "chore: sync termux-sync.py with the package" \
+            --body "termux-sync.py is the file shipped in release tarballs and used by install.sh and tsctl. It must be identical to src/termux_sync/__init__.py. This pull request was opened by the repository bot."
+
+      - name: Publish the latest release to PyPI when it is missing
+        if: steps.check.outputs.pypi_lag == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: gh workflow run release-pypi.yml --ref "${GITHUB_REF_NAME}" -f tag="$RELEASE_TAG"
+
+      - name: Update the health issue
+        run: |
+          gh label create bot-health --color D93F0B --description "Opened by the repository bot" --force
+          TITLE="Repository health report"
+          NUMBER=$(gh issue list --state open --label bot-health --json number --jq '.[0].number')
+          if [ "${{ steps.check.outputs.problems }}" != "0" ]; then
+            if [ -n "$NUMBER" ]; then
+              gh issue edit "$NUMBER" --body-file health-report.md
+            else
+              gh issue create --title "$TITLE" --label bot-health --body-file health-report.md
+            fi
+          elif [ -n "$NUMBER" ]; then
+            gh issue close "$NUMBER" --comment "All checks pass again."
+          fi

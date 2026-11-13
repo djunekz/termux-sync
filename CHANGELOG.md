@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `Repo Bot` workflow that runs every 6 hours (and on demand). It runs lint and tests against the latest dependencies, checks that the version in `pyproject.toml`, the source, `uv.lock` and `CHANGELOG.md` agree, and checks that `termux-sync.py` mirrors the package. It opens a pull request when the script drifted, starts the PyPI publish when a GitHub release is missing from PyPI for more than 90 minutes, and keeps a single "Repository health report" issue up to date, closing it when everything passes again.
+- `release-pypi.yml` can now be started by hand (`workflow_dispatch`) with an existing release tag, which is what the bot uses to repair a missing PyPI upload.
+
 ### Changed
 - The daemon no longer re-reads the schedule at the top of every loop before waiting; it checks it once after each wait, which is when a change matters. Behaviour is otherwise the same as in 1.3.6.
 - More regression tests for the 1.3.6 fixes (temporary folder selection, config permissions, unsafe archive names in a manifest, invalid names in `delete`, hard link and extraction failures), to bring patch coverage back above the Codecov target.
