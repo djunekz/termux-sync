@@ -11,6 +11,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.6] - 2026-11-13
+
+### Fixed
+- **Local backups were archived into every new backup.** The default local folder `~/termux-backups` lives inside the home directory, so each backup also contained all previous backups and grew without bound. The configured local backup folder is now excluded from the archive of any directory that contains it.
+- **`termux-sync.py` was out of date.** The standalone script shipped in release tarballs (used by `install.sh` and `tsctl`) was still version 1.3.0, so users who installed from a release did not get the 1.3.x fixes. It is now an exact copy of `src/termux_sync/__init__.py`, and the release workflow regenerates it from the package before building the tarball.
+- **Exclude patterns matched any part of a path.** A pattern such as `.m2` or `Music` also dropped unrelated files like `notes.m2x`. Patterns now match whole path components, so `.cache` skips the `.cache` folder and everything below it but not `a.cache.txt`.
+- **`delete --name` could remove folders outside the backup folder.** A name containing `../` was joined to the backup path before deleting. Backup names are now reduced to a plain name in `delete` and in the local storage backend.
+- Backup labels containing `/` or other special characters could produce invalid backup names and tags. Labels are now sanitised (letters, digits, `.`, `_`, `-`); the original label is still stored in the manifest.
+- A manifest listing an archive name with path separators is now refused during checksum verification and extraction instead of being read from outside the download folder.
+- Hard links inside an archive were checked against the wrong base directory during the safety check. They are now checked relative to the restore root.
+- Files that could not be extracted during `restore` were dropped silently. They are now written to the log.
+- GitHub API requests had no timeout and could hang forever on a bad connection. They now time out after 60 seconds.
+- GitHub upload treated every HTTP 422 as "already uploaded". Only the `already_exists` response is skipped now; other validation errors are reported.
+- `termux-sync logs` never coloured `WARNING` lines because it looked for `[WARN]`. Log levels are now consistent and matched correctly.
+- `termux-sync schedule` printed the wrong boot script name (`start-sync.sh`). It now shows `termux-sync-daemon.sh`.
+- The daemon read the schedule once at start and kept running after auto-backup was disabled. It now re-reads the schedule before every wait and stops when auto-backup is disabled.
+- `setup` stored a local path such as `~/backups` literally, creating a folder named `~`. The path is now expanded.
+- `import-config` crashed with an unclear error when the JSON file was not an object. It now reports a clear message.
+- Temporary files fell back to a Termux-only path when `TMPDIR` was unset, which failed outside Termux. The system temporary directory is used when neither `TMPDIR` nor `$PREFIX/tmp` exists.
+- `tsctl` accepted an empty `.sha256` download and then failed with a confusing checksum mismatch. An empty checksum file is now treated as missing, as `install.sh` already does.
+- `uv.lock` still recorded the package version as 1.3.0.
+
+### Security
+- `config.json` (which stores the GitHub token and encryption password) is now written with permissions `600`, and existing files are tightened on the next save.
+
+### Changed
+- CI now fails if `termux-sync.py` differs from `src/termux_sync/__init__.py`, or if the version in `pyproject.toml` and the source differ.
+- The release workflow now fails if the tag, `pyproject.toml` and `VERSION` disagree, so a mismatched tag can no longer produce a release or a PyPI upload with the wrong version.
+- The PyPI publish step uses `skip-existing`, so re-running a release after a partial failure no longer fails on files that are already uploaded.
+- Removed the `Python :: 3.8` classifier, which contradicted `requires-python = ">=3.10"`.
+
+---
+
 ## [1.3.5] - 2026-10-30
 
 ### Added

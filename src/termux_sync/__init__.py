@@ -22,6 +22,7 @@ import tarfile
 import argparse
 import datetime
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -54,7 +55,7 @@ except ImportError:
     )
     sys.exit(1)
 
-VERSION       = "1.3.5"
+VERSION       = "1.3.6"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -80,6 +81,27 @@ BANNER = r"""
      ██║   ███████╗██║  ██║██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗
      ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝
 """
+
+def _tmp_root() -> Path:
+    env = os.environ.get("TMPDIR")
+    if env:
+        return Path(env)
+    prefix_tmp = Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr")) / "tmp"
+    if prefix_tmp.is_dir():
+        return prefix_tmp
+    return Path(tempfile.gettempdir())
+
+
+def _clean_backup_name(name) -> str:
+    cleaned = os.path.basename(str(name).replace("\\", "/")).strip()
+    if not cleaned or cleaned in (".", "..") or "/" in cleaned:
+        return ""
+    return cleaned
+
+
+def _clean_label(label: str) -> str:
+    return re.sub(r"[^\w.-]+", "_", str(label).strip()).strip("_")
+
 
 def log(level: str, message: str):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -130,8 +152,13 @@ def load_config() -> dict:
 
 def save_config(cfg: dict):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
+    fd = os.open(CONFIG_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(cfg, f, indent=2)
+    try:
+        os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
 
 
 console = Console()
@@ -468,9 +495,12 @@ def create_archive(
     if sink is not None and hasattr(sink, "attach"):
         sink.attach(progress, task, label)
 
+    wrapped_excludes = ["/" + pat.strip("/") + "/" for pat in excludes if pat.strip("/")]
+
     def _filter(tarinfo):
-        for pat in excludes:
-            if pat in tarinfo.name:
+        wrapped_name = "/" + tarinfo.name.strip("/") + "/"
+        for pat in wrapped_excludes:
+            if pat in wrapped_name:
                 return None
         return tarinfo
 
@@ -541,7 +571,8 @@ def _safe_extract_member(member: tarfile.TarInfo, dest_path: Path):
         link_target = member.linkname
         if os.path.isabs(link_target):
             raise ValueError(f"Unsafe absolute link target in archive: {member_name!r} -> {link_target!r}")
-        resolved_link = (target.parent / link_target).resolve()
+        link_base = dest_path if member.islnk() else target.parent
+        resolved_link = (link_base / link_target).resolve()
         try:
             resolved_link.relative_to(dest_root)
         except ValueError:
@@ -578,8 +609,8 @@ def extract_archive(archive_path: Path, dest_path: Path, label: str, progress: P
                         tf.extract(member, dest_path, set_attrs=False, filter="data")
                     else:
                         tf.extract(member, dest_path, set_attrs=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log("WARNING", f"Could not extract {member.name!r}: {e}")
     progress.update(task, total=1, completed=1, description=f"[green]{label} ✓")
 
 
@@ -600,7 +631,7 @@ def read_manifest(backup_dir: Path) -> Optional[dict]:
 
 class LocalStorage:
     def __init__(self, cfg: dict):
-        self.root = Path(cfg["local_path"])
+        self.root = Path(cfg["local_path"]).expanduser()
 
     def upload(self, backup_dir: Path, backup_name: str, progress: Progress) -> str:
         dest = self.root / backup_name
@@ -627,8 +658,9 @@ class LocalStorage:
         return backups
 
     def download(self, backup_name: str, dest: Path, progress: Progress):
+        backup_name = _clean_backup_name(backup_name)
         src = self.root / backup_name
-        if not src.exists():
+        if not backup_name or not src.exists():
             raise FileNotFoundError(f"Backup not found: {src}")
         task = progress.add_task("[cyan]Loading from local storage…", total=None)
         dest.mkdir(parents=True, exist_ok=True)
@@ -648,7 +680,10 @@ class LocalStorage:
             shutil.rmtree(old, ignore_errors=True)
 
     def delete_backup(self, backup_name: str):
-        target = self.root / backup_name
+        cleaned = _clean_backup_name(backup_name)
+        if not cleaned:
+            raise ValueError(f"Invalid backup name: {backup_name!r}")
+        target = self.root / cleaned
         if not target.exists():
             raise FileNotFoundError(f"Backup not found: {target}")
         shutil.rmtree(target)
@@ -782,7 +817,7 @@ class GitHubStorage:
         data = json.dumps(kwargs.get("json", {})).encode() if "json" in kwargs else None
         req  = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 if resp.status == 204:
                     return {}
                 body = resp.read()
@@ -967,7 +1002,7 @@ class GitHubStorage:
             except urllib.error.HTTPError as e:
                 # (HTTPError is a URLError subclass, so it must be handled first)
                 body = e.read().decode(errors="replace")
-                if e.code == 422:
+                if e.code == 422 and "already_exists" in body:
                     progress.update(progress_task, completed=file_size,
                                     description=f"[yellow]{local_path.name} already uploaded, skipping")
                     return {}
@@ -1005,7 +1040,7 @@ class GitHubStorage:
 
         existing_assets = {a["name"] for a in release.get("assets", [])}
 
-        tmp_split = Path(os.environ.get("TMPDIR", "/data/data/com.termux/files/usr/tmp")) / f"termux-sync-split-{backup_name}"
+        tmp_split = _tmp_root() / f"termux-sync-split-{backup_name}"
         tmp_split.mkdir(parents=True, exist_ok=True)
         try:
             for f in sorted(backup_dir.iterdir()):
@@ -1266,15 +1301,29 @@ def get_storage(cfg: dict):
     return LocalStorage(cfg)
 
 
+def _storage_excludes(cfg: dict, src: Path) -> list[str]:
+    if cfg.get("storage", "local") != "local":
+        return []
+    try:
+        root = Path(cfg.get("local_path", str(DEFAULT_DEST))).expanduser().resolve()
+        rel = root.relative_to(src.resolve())
+    except (ValueError, OSError):
+        return []
+    if not rel.parts:
+        return []
+    return [f"{src.name}/{rel.as_posix()}"]
+
+
 def cmd_backup(cfg: dict, label: str = ""):
     print_section("BACKUP", "Creating a full snapshot of your Termux environment")
 
     timestamp   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"termux_backup_{timestamp}"
-    if label:
-        backup_name += f"_{label.replace(' ', '_')}"
+    clean_label = _clean_label(label) if label else ""
+    if clean_label:
+        backup_name += f"_{clean_label}"
 
-    tmp_dir = Path(os.environ.get("TMPDIR", "/data/data/com.termux/files/usr/tmp")) / backup_name
+    tmp_dir = _tmp_root() / backup_name
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     def _cleanup_tmp():
@@ -1352,8 +1401,9 @@ def cmd_backup(cfg: dict, label: str = ""):
                 continue
             out_path = tmp_dir / f"{key}.tar.{compression}"
             sink = storage.stream_sink(out_path.name, progress) if streaming else None
+            item_excludes = list(excludes) + _storage_excludes(cfg, src)
             try:
-                actual_out = create_archive(src, out_path, compression, excludes, label_text,
+                actual_out = create_archive(src, out_path, compression, item_excludes, label_text,
                                             progress, sink=sink)
                 if sink is not None:
                     sink.finish()
@@ -1473,13 +1523,13 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         except ValueError:
             backup_name = choice
 
-    safe_backup_name = os.path.basename(str(backup_name).replace("\\", "/")).strip()
-    if not safe_backup_name or safe_backup_name in (".", "..") or "/" in safe_backup_name:
-        console.print(f"  [red]✗ Invalid backup name: {backup_name!r}[/red]")
+    safe_backup_name = _clean_backup_name(backup_name)
+    if not safe_backup_name:
+        console.print(f"  [red]✗ Invalid backup name: {escape(repr(backup_name))}[/red]")
         return
     backup_name = safe_backup_name
 
-    tmp_dir = Path(os.environ.get("TMPDIR", "/data/data/com.termux/files/usr/tmp")) / f"restore_{backup_name}"
+    tmp_dir = _tmp_root() / f"restore_{backup_name}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     console.print()
@@ -1511,9 +1561,14 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
     console.print("  [bold]Step 2/4[/bold]  Verifying checksums…")
     all_ok = True
     for key, info in manifest.get("files", {}).items():
+        if _clean_backup_name(info.get("archive", "")) != info.get("archive"):
+            console.print(f"  [red]✗ Refusing unsafe archive name for {escape(repr(key))}[/red]")
+            log("WARNING", f"Unsafe archive name in manifest for key: {key!r}")
+            all_ok = False
+            continue
         archive = tmp_dir / info["archive"]
         if not archive.exists():
-            console.print(f"  [red]✗ Missing archive: {info['archive']}[/red]")
+            console.print(f"  [red]✗ Missing archive: {escape(info['archive'])}[/red]")
             all_ok = False
             continue
         cs = sha256(archive)
@@ -1559,6 +1614,9 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
                 allowed_roots[item_key] = Path(item_root).resolve().parent
 
         for key, info in manifest.get("files", {}).items():
+            if _clean_backup_name(info.get("archive", "")) != info.get("archive"):
+                log("WARNING", f"Skipped unsafe archive name in manifest for key: {key!r}")
+                continue
             archive = tmp_dir / info["archive"]
 
             src_dir = allowed_roots.get(key)
@@ -1658,14 +1716,20 @@ def cmd_delete(cfg: dict, backup_name: str = ""):
         except ValueError:
             backup_name = choice
 
-    console.print(f"\n  [bold red]Backup to be deleted:[/bold red] [white]{backup_name}[/white]")
+    cleaned_name = _clean_backup_name(backup_name)
+    if not cleaned_name:
+        console.print(f"\n  [red]✗ Invalid backup name: {escape(repr(backup_name))}[/red]\n")
+        return
+    backup_name = cleaned_name
+
+    console.print(f"\n  [bold red]Backup to be deleted:[/bold red] [white]{escape(backup_name)}[/white]")
     if not Confirm.ask("  [bold red]Are you sure? This cannot be undone.[/bold red]", default=False):
         console.print("  [dim]Cancelled.[/dim]")
         return
 
     try:
         storage.delete_backup(backup_name)
-        console.print(f"\n  [bold green]✓ Backup '{backup_name}' deleted successfully.[/bold green]\n")
+        console.print(f"\n  [bold green]✓ Backup '{escape(backup_name)}' deleted successfully.[/bold green]\n")
         log("INFO", f"Deleted backup: {backup_name}")
     except Exception as e:
         console.print(f"\n  [red]✗ Failed to delete backup: {escape(str(e))}[/red]\n")
@@ -1694,7 +1758,7 @@ def cmd_setup():
                 "  Local backup path", default=cfg.get("local_path", str(DEFAULT_DEST))
             ).strip()
             if val:
-                cfg["local_path"] = val
+                cfg["local_path"] = str(Path(val).expanduser())
                 break
             console.print("  [red]✗ Path cannot be empty.[/red]")
 
@@ -1848,7 +1912,7 @@ def cmd_schedule():
             f"  Time   : [white]{sched['hour']:02d}:{sched['minute']:02d}[/white] daily\n"
             f"  Label  : [white]{sched['label']}[/white]\n\n"
             f"  [dim]Start daemon with:[/dim]  [white]termux-sync daemon &[/white]\n"
-            f"  [dim]Or add to Termux:Boot:[/dim]  [white]~/.termux/boot/start-sync.sh[/white]",
+            f"  [dim]Or add to Termux:Boot:[/dim]  [white]~/.termux/boot/termux-sync-daemon.sh[/white]",
             border_style="green", padding=(1, 2)
         ))
     else:
@@ -1881,6 +1945,11 @@ def cmd_daemon(cfg: dict):
     log("INFO", "Daemon started")
 
     while True:
+        sched = load_schedule()
+        if not sched.get("enabled"):
+            log("INFO", "Daemon stopped: auto-backup was disabled")
+            console.print("[yellow]Auto-backup was disabled. Daemon stopped.[/yellow]")
+            return
         now    = datetime.datetime.now()
         target = now.replace(hour=sched["hour"], minute=sched["minute"], second=0, microsecond=0)
         if target <= now:
@@ -1888,6 +1957,11 @@ def cmd_daemon(cfg: dict):
         sleep_sec = (target - now).total_seconds()
         log("INFO", f"Next backup in {sleep_sec/3600:.1f}h at {target.strftime('%H:%M')}")
         time.sleep(sleep_sec)
+        sched = load_schedule()
+        if not sched.get("enabled"):
+            log("INFO", "Daemon stopped: auto-backup was disabled")
+            console.print("[yellow]Auto-backup was disabled. Daemon stopped.[/yellow]")
+            return
         log("INFO", "Auto-backup triggered by daemon")
         cfg = load_config()
         try:
@@ -1993,7 +2067,7 @@ def cmd_logs(lines: int = 40):
         safe = escape(line)
         if "[ERROR]" in line:
             console.print(f"  [red]{safe}[/red]")
-        elif "[WARN]" in line:
+        elif "[WARN" in line:
             console.print(f"  [yellow]{safe}[/yellow]")
         elif "[TRACE]" in line:
             console.print(f"  [dim red]{safe}[/dim red]")
@@ -2228,7 +2302,7 @@ def cmd_clear_cache():
                             else:
                                 child.unlink(missing_ok=True)
                         except Exception as e:
-                            log("WARN", f"Could not remove {child}: {escape(str(e))}")
+                            log("WARNING", f"Could not remove {child}: {e}")
                 prog.update(task, total=1, completed=1,
                             description=f"[green]{label} cleared ({human_size(size)}) ✓")
                 cleared += size
@@ -2287,6 +2361,13 @@ def cmd_import_config(input_path: str = ""):
             hint="Make sure the file is a valid JSON export from [bold]termux-sync export-config[/bold].",
             title="Not a valid JSON file",
         ) from e
+
+    if not isinstance(new_cfg, dict):
+        raise UserError(
+            f"{src}\nThe top level of the file must be a JSON object.",
+            hint="Make sure the file is a valid JSON export from [bold]termux-sync export-config[/bold].",
+            title="Not a valid config file",
+        )
 
     existing = load_config()
 

@@ -24,6 +24,15 @@ jobs:
       - name: Check syntax
         run: python -m py_compile src/termux_sync/__init__.py
 
+      - name: Check termux-sync.py mirrors the package
+        run: cmp src/termux_sync/__init__.py termux-sync.py
+
+      - name: Check version consistency
+        run: |
+          PKG=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          SRC=$(sed -n 's/^VERSION *= *"\(.*\)"/\1/p' src/termux_sync/__init__.py)
+          test "$PKG" = "$SRC"
+
       - name: Lint with ruff
         run: ruff check src tests
 

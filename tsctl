@@ -154,7 +154,7 @@ download_release() {
     if [[ -n "$sha_url" ]]; then
         local SHA_FILE="$TMP_DIR/termux-sync.tar.gz.sha256"
         curl -fsSL "$sha_url" -o "$SHA_FILE" 2>/dev/null || true
-        if [[ -f "$SHA_FILE" ]]; then
+        if [[ -s "$SHA_FILE" ]]; then
             local expected actual
             expected=$(awk '{print $1}' "$SHA_FILE")
             actual=$(sha256sum "$TARBALL" | awk '{print $1}')
