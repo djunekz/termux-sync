@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.7] - 2026-11-19
+
 ### Added
 - `Repo Bot` workflow that runs every 6 hours (and on demand). It runs lint and tests against the latest dependencies, checks that the version in `pyproject.toml`, the source, `uv.lock` and `CHANGELOG.md` agree, and checks that `termux-sync.py` mirrors the package. It opens a pull request when the script drifted, starts the PyPI publish when a GitHub release is missing from PyPI for more than 90 minutes, and keeps a single "Repository health report" issue up to date, closing it when everything passes again.
 - `release-pypi.yml` can now be started by hand (`workflow_dispatch`) with an existing release tag, which is what the bot uses to repair a missing PyPI upload.
