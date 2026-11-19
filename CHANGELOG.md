@@ -11,6 +11,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.8] - 2026-11-19
+
+### Fixed
+- **Restore could still write outside the backed-up folder through links.** The 1.3.7 check only looked at member names. An archive could contain a symbolic link such as `etc -> bin`, or a hard link to an existing file, and then write through it. Every member, and the target of every symbolic or hard link, must now stay inside the folder its archive is restored to (`etc`, `lib` or `home`); anything else is skipped and logged. Relative links that stay inside that folder still work.
+
+---
+
 ## [1.3.7] - 2026-11-19
 
 ### Added

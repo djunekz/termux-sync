@@ -280,3 +280,57 @@ def test_install_packages_refuses_option_like_names(monkeypatch, config_home):
     failed = ts.install_packages(["git", "--allow-unauthenticated", "-oAPT::Foo=1"], ts.console)
     assert calls == [["pkg", "install", "-y", "--", "git"]]
     assert failed == ["--allow-unauthenticated", "-oAPT::Foo=1"]
+
+
+def _write_special_tar(path, entries):
+    with tarfile.open(path, "w:gz") as tf:
+        for name, kind, payload in entries:
+            info = tarfile.TarInfo(name)
+            info.mode = 0o755
+            if kind == "sym":
+                info.type = tarfile.SYMTYPE
+                info.linkname = payload
+                tf.addfile(info)
+            elif kind == "hard":
+                info.type = tarfile.LNKTYPE
+                info.linkname = payload
+                tf.addfile(info)
+            else:
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
+
+
+def test_extract_blocks_symlink_pivot_out_of_expected_root(tmp_path, config_home):
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "sh").write_text("original")
+    archive = tmp_path / "evil.tar.gz"
+    _write_special_tar(archive, [("etc", "sym", "bin"), ("etc/sh", "file", b"PWNED")])
+    with ts.make_progress() as progress:
+        ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
+    assert (prefix / "bin" / "sh").read_text() == "original"
+    assert not (prefix / "etc").is_symlink()
+
+
+def test_extract_blocks_hardlink_to_file_outside_expected_root(tmp_path, config_home):
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "sh").write_text("original")
+    archive = tmp_path / "evil.tar.gz"
+    _write_special_tar(archive, [("etc/x", "hard", "bin/sh"), ("etc/x", "file", b"PWNED")])
+    with ts.make_progress() as progress:
+        ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
+    assert (prefix / "bin" / "sh").read_text() == "original"
+
+
+def test_extract_allows_relative_symlink_inside_expected_root(tmp_path, config_home):
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    archive = tmp_path / "ok.tar.gz"
+    _write_special_tar(
+        archive,
+        [("etc/real.conf", "file", b"data"), ("etc/link.conf", "sym", "real.conf")],
+    )
+    with ts.make_progress() as progress:
+        ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
+    assert (prefix / "etc" / "link.conf").read_text() == "data"

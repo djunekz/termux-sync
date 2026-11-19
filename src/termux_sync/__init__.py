@@ -55,7 +55,7 @@ except ImportError:
     )
     sys.exit(1)
 
-VERSION       = "1.3.7"
+VERSION       = "1.3.8"
 APP_NAME      = "termux-sync"
 CONFIG_DIR    = Path.home() / ".config" / APP_NAME
 CONFIG_FILE   = CONFIG_DIR / "config.json"
@@ -590,7 +590,11 @@ def _safe_extract_member(member: tarfile.TarInfo, dest_path: Path):
         raise ValueError(f"Refusing device/fifo entry in archive: {member_name!r}")
 
 
-def _check_member_root(member: tarfile.TarInfo, expected_top: str | None):
+def _within(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _check_member_root(member: tarfile.TarInfo, dest_path: Path, expected_top: str | None):
     if expected_top is None:
         return
     parts = [p for p in Path(member.name).parts if p != "."]
@@ -598,6 +602,17 @@ def _check_member_root(member: tarfile.TarInfo, expected_top: str | None):
         raise ValueError(
             f"Archive member outside expected root {expected_top!r}: {member.name!r}"
         )
+    jail = (dest_path / expected_top).resolve()
+    target = (dest_path / member.name).resolve()
+    if not _within(target, jail):
+        raise ValueError(f"Archive member escapes {expected_top!r}: {member.name!r}")
+    if member.issym() or member.islnk():
+        link_base = dest_path if member.islnk() else target.parent
+        resolved_link = (link_base / member.linkname).resolve()
+        if not _within(resolved_link, jail):
+            raise ValueError(
+                f"Archive link escapes {expected_top!r}: {member.name!r} -> {member.linkname!r}"
+            )
 
 
 def extract_archive(
@@ -616,7 +631,7 @@ def extract_archive(
         for member in tf.getmembers():
             try:
                 _safe_extract_member(member, dest_path)
-                _check_member_root(member, expected_top)
+                _check_member_root(member, dest_path, expected_top)
             except ValueError as e:
                 log("WARNING", f"Skipped unsafe archive member during restore: {e}")
                 continue
