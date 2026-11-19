@@ -13,6 +13,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - `Repo Bot` workflow that runs every 6 hours (and on demand). It runs lint and tests against the latest dependencies, checks that the version in `pyproject.toml`, the source, `uv.lock` and `CHANGELOG.md` agree, and checks that `termux-sync.py` mirrors the package. It opens a pull request when the script drifted, starts the PyPI publish when a GitHub release is missing from PyPI for more than 90 minutes, and keeps a single "Repository health report" issue up to date, closing it when everything passes again.
 - `release-pypi.yml` can now be started by hand (`workflow_dispatch`) with an existing release tag, which is what the bot uses to repair a missing PyPI upload.
 
+### Fixed
+- **Restore could write outside the backed-up directory.** Each archive was extracted into the parent of its backup root, and members were only checked against that wider directory, so a crafted `usr_etc` or `usr_lib` archive could overwrite files such as `$PREFIX/bin/sh`. Every member must now start with the folder name the backup would have produced (`etc`, `lib`, `home`); anything else is skipped and logged.
+- Package names read from a manifest are validated and passed to `pkg install` after `--`, so a name starting with `-` can no longer be read as an option.
+
 ### Changed
 - The daemon no longer re-reads the schedule at the top of every loop before waiting; it checks it once after each wait, which is when a change matters. Behaviour is otherwise the same as in 1.3.6.
 - More regression tests for the 1.3.6 fixes (temporary folder selection, config permissions, unsafe archive names in a manifest, invalid names in `delete`, hard link and extraction failures), to bring patch coverage back above the Codecov target.

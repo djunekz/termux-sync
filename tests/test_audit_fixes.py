@@ -1,3 +1,5 @@
+import hashlib
+import io
 import json
 import os
 import stat
@@ -208,3 +210,73 @@ def test_extract_rejects_hardlink_escaping_destination(tmp_path, config_home):
         ts.extract_archive(archive, tmp_path / "out", "h", progress)
     assert not (tmp_path / "out" / "link").exists()
     assert "Skipped unsafe archive member" in (config_home / "sync.log").read_text()
+
+
+def _write_tar(path, members):
+    with tarfile.open(path, "w:gz") as tf:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o755
+            tf.addfile(info, io.BytesIO(data))
+
+
+def test_extract_rejects_members_outside_expected_root(tmp_path, config_home):
+    archive = tmp_path / "usr_etc.tar.gz"
+    _write_tar(archive, {"etc/motd": b"ok\n", "bin/sh": b"#!/bin/sh\necho pwned\n"})
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "sh").write_text("original")
+    with ts.make_progress() as progress:
+        ts.extract_archive(archive, prefix, "usr_etc.tar.gz", progress, expected_top="etc")
+    assert (prefix / "etc" / "motd").read_text() == "ok\n"
+    assert (prefix / "bin" / "sh").read_text() == "original"
+    assert "outside expected root" in (config_home / "sync.log").read_text()
+
+
+def test_restore_usr_etc_archive_cannot_touch_prefix_bin(
+    local_cfg, tmp_path, answers, config_home, monkeypatch
+):
+    prefix = tmp_path / "prefix"
+    home = tmp_path / "files" / "home"
+    (prefix / "etc").mkdir(parents=True)
+    (prefix / "bin").mkdir()
+    home.mkdir(parents=True)
+    (prefix / "bin" / "sh").write_text("original")
+    monkeypatch.setattr(ts, "TERMUX_HOME", prefix)
+    monkeypatch.setattr(ts, "TERMUX_FILES", home)
+    monkeypatch.setattr(
+        ts,
+        "BACKUP_ITEMS",
+        [
+            ("packages", "Installed package list", None),
+            ("home", "Home directory (~)", home),
+            ("usr_etc", "Termux config (/usr/etc)", prefix / "etc"),
+        ],
+    )
+
+    root = tmp_path / "backups"
+    folder = root / "evil"
+    folder.mkdir(parents=True)
+    arc = folder / "usr_etc.tar.gz"
+    _write_tar(arc, {"etc/motd": b"ok\n", "bin/sh": b"echo pwned\n"})
+    checksum = hashlib.sha256(arc.read_bytes()).hexdigest()
+    (folder / "manifest.json").write_text(json.dumps({
+        "name": "evil",
+        "date": "2026-01-01T00:00:00",
+        "files": {"usr_etc": {"archive": "usr_etc.tar.gz", "size": arc.stat().st_size,
+                              "checksum": checksum}},
+        "packages": [],
+    }))
+    answers(confirm=True)
+    ts.cmd_restore(local_cfg, backup_name="evil")
+    assert (prefix / "etc" / "motd").read_text() == "ok\n"
+    assert (prefix / "bin" / "sh").read_text() == "original"
+
+
+def test_install_packages_refuses_option_like_names(monkeypatch, config_home):
+    calls = []
+    monkeypatch.setattr(ts.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    failed = ts.install_packages(["git", "--allow-unauthenticated", "-oAPT::Foo=1"], ts.console)
+    assert calls == [["pkg", "install", "-y", "--", "git"]]
+    assert failed == ["--allow-unauthenticated", "-oAPT::Foo=1"]

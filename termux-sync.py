@@ -438,6 +438,9 @@ def get_installed_packages() -> list[str]:
         return []
 
 
+_PKG_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+._-]*")
+
+
 def install_packages(pkg_list: list[str], console: Console) -> list[str]:
     """Reinstall packages one by one. Returns the names that failed."""
     if not pkg_list:
@@ -449,9 +452,14 @@ def install_packages(pkg_list: list[str], console: Console) -> list[str]:
         task = progress.add_task("[cyan]Installing…", total=total)
         for i, pkg in enumerate(pkg_list, 1):
             progress.update(task, description=f"[cyan]{i}/{total}  {escape(pkg)}")
+            if not _PKG_NAME_RE.fullmatch(str(pkg)):
+                log("WARNING", f"Skipped invalid package name in manifest: {pkg!r}")
+                failed.append(str(pkg))
+                progress.advance(task)
+                continue
             try:
                 subprocess.run(
-                    ["pkg", "install", "-y", pkg],
+                    ["pkg", "install", "-y", "--", pkg],
                     capture_output=True, check=True
                 )
             except Exception:
@@ -582,7 +590,23 @@ def _safe_extract_member(member: tarfile.TarInfo, dest_path: Path):
         raise ValueError(f"Refusing device/fifo entry in archive: {member_name!r}")
 
 
-def extract_archive(archive_path: Path, dest_path: Path, label: str, progress: Progress):
+def _check_member_root(member: tarfile.TarInfo, expected_top: str | None):
+    if expected_top is None:
+        return
+    parts = [p for p in Path(member.name).parts if p != "."]
+    if not parts or parts[0] != expected_top:
+        raise ValueError(
+            f"Archive member outside expected root {expected_top!r}: {member.name!r}"
+        )
+
+
+def extract_archive(
+    archive_path: Path,
+    dest_path: Path,
+    label: str,
+    progress: Progress,
+    expected_top: str | None = None,
+):
     task = progress.add_task(f"[cyan]{label}", total=None)
     dest_path.mkdir(parents=True, exist_ok=True)
 
@@ -592,6 +616,7 @@ def extract_archive(archive_path: Path, dest_path: Path, label: str, progress: P
         for member in tf.getmembers():
             try:
                 _safe_extract_member(member, dest_path)
+                _check_member_root(member, expected_top)
             except ValueError as e:
                 log("WARNING", f"Skipped unsafe archive member during restore: {e}")
                 continue
@@ -1609,9 +1634,11 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
         # and must never be trusted as an extraction root — only used to double
         # check they agree with the known-safe root for that item key.
         allowed_roots = {}
+        expected_tops = {}
         for item_key, _label, item_root in BACKUP_ITEMS:
             if item_root is not None:
                 allowed_roots[item_key] = Path(item_root).resolve().parent
+                expected_tops[item_key] = Path(item_root).resolve().name
 
         for key, info in manifest.get("files", {}).items():
             if _clean_backup_name(info.get("archive", "")) != info.get("archive"):
@@ -1628,7 +1655,10 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
                 continue
 
             try:
-                extract_archive(archive, src_dir, info["archive"], progress)
+                extract_archive(
+                    archive, src_dir, info["archive"], progress,
+                    expected_top=expected_tops.get(key),
+                )
                 log("INFO", f"Extracted {info['archive']} → {src_dir}")
             except Exception as e:
                 console.print(f"  [red]✗ Extract failed: {escape(str(e))}[/red]")
