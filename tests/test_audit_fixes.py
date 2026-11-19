@@ -334,3 +334,17 @@ def test_extract_allows_relative_symlink_inside_expected_root(tmp_path, config_h
     with ts.make_progress() as progress:
         ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
     assert (prefix / "etc" / "link.conf").read_text() == "data"
+
+
+def test_extract_blocks_write_through_existing_symlink_inside_root(tmp_path, config_home):
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "sh").write_text("original")
+    (prefix / "etc").mkdir()
+    (prefix / "etc" / "link").symlink_to("../bin")
+    archive = tmp_path / "evil.tar.gz"
+    _write_special_tar(archive, [("etc/link/sh", "file", b"PWNED")])
+    with ts.make_progress() as progress:
+        ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
+    assert (prefix / "bin" / "sh").read_text() == "original"
+    assert "escapes" in (config_home / "sync.log").read_text()
