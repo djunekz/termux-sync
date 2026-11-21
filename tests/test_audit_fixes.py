@@ -49,6 +49,25 @@ def test_exclude_patterns_match_whole_components(tmp_path):
     assert not any(n.startswith("home/.cache") for n in names)
 
 
+@pytest.mark.parametrize("pattern", [".cache", "./.cache", ".cache/", "./.cache/", ".//.cache"])
+def test_exclude_patterns_ignore_leading_dot_slash(tmp_path, pattern):
+    root = tmp_path / "home"
+    (root / ".cache").mkdir(parents=True)
+    (root / ".cache" / "junk").write_text("x")
+    out = tmp_path / "h.tar.gz"
+
+    class Progress:
+        def add_task(self, *a, **k):
+            return 1
+
+        def update(self, *a, **k):
+            pass
+
+    ts.create_archive(root, out, "gz", [pattern], "home", Progress())
+    names = tarfile.open(out).getnames()
+    assert not any(n.startswith("home/.cache") for n in names)
+
+
 def test_storage_excludes_skips_local_backup_folder_inside_source(tmp_path):
     home = tmp_path / "home"
     (home / "termux-backups").mkdir(parents=True)

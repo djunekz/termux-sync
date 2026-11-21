@@ -15,6 +15,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - **Release asset names are validated before download.** A name that is not a plain file name aborts the restore instead of being written outside the temporary folder.
 - **Pruning only removes folders that contain a backup manifest.** A misconfigured local backup path can no longer delete unrelated directories.
 - **Backup dates and schedule labels are escaped before printing**, so metadata from a shared backup cannot inject terminal markup.
+- **Exclude patterns tolerate a leading `./`.** A pattern such as `./node_modules` used to match nothing; it now behaves like `node_modules`.
 
 ### Changed
 - The installer and `tsctl` now refuse to install when the release advertises a checksum that cannot be downloaded or is malformed. Prerelease tags are recognised, and the source-tarball fallback no longer fails a checksum that belongs to a different file.
