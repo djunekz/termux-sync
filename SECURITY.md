@@ -32,6 +32,14 @@ Recommendations:
 - If your device is shared or compromised, revoke your tokens immediately from the GitHub settings page.
 - Do not commit your `config.json` file to any repository.
 
+Backups created by versions before 1.3.9 (or by any version without this fix) included `~/.config/termux-sync/config.json`, so any backup uploaded by those versions contains the token. If you used GitHub storage with an earlier version:
+
+- Revoke or rotate the token at [github.com/settings/tokens](https://github.com/settings/tokens), or in the fine-grained token settings.
+- Delete the old backups: the local backup folder, the Google Drive folder, and the GitHub releases in the backup repository.
+- Updating to this version only changes future archives. It does not remove copies that already left the device, and restoring an old backup restores the old configuration.
+
+Deleting `~/.config/termux-sync/config.json` is not enough on its own once an archive that contained it has been uploaded.
+
 ---
 
 ## Backup Security

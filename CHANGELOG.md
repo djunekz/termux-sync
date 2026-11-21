@@ -20,6 +20,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - The installer and `tsctl` now refuse to install when the release advertises a checksum that cannot be downloaded or is malformed. Prerelease tags are recognised, and the source-tarball fallback no longer fails a checksum that belongs to a different file.
 - Documentation now recommends a fine-grained personal access token limited to the backup repository with `Contents: Read and write`.
 
+### Security
+- **Backups created by earlier versions contain the GitHub token.** The home archive used to include `~/.config/termux-sync/config.json`, which stores the token in plain text, so every backup uploaded by a version before 1.3.9 carries it. Treat that token as exposed: rotate it at GitHub and delete the old backups. This release stops including the file; it does not remove copies that were already uploaded, and restoring an old backup brings the old configuration back.
+
 ---
 
 ## [1.3.8] - 2026-11-19
