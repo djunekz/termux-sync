@@ -27,7 +27,7 @@ termux-sync stores configuration, including GitHub Personal Access Tokens, in `~
 
 Recommendations:
 
-- Use a token with the minimum required scope. For GitHub storage, only the `repo` scope is needed.
+- Use a fine-grained token limited to the backup repository, with only the `Contents: Read and write` permission. A classic token needs the `repo` scope, which grants access to every repository you own.
 - Set a token expiration date. Rotate tokens periodically.
 - If your device is shared or compromised, revoke your tokens immediately from the GitHub settings page.
 - Do not commit your `config.json` file to any repository.

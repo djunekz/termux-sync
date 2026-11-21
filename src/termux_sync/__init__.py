@@ -237,7 +237,7 @@ def _explain(exc: Exception) -> tuple:
     if isinstance(exc, urllib.error.HTTPError):
         hint = "Check your token and repository name with [bold]termux-sync setup[/bold]."
         if exc.code in (401, 403):
-            hint = "Your token is invalid, expired, or lacks the [bold]repo[/bold] scope. Create a new one and run [bold]termux-sync setup[/bold]."
+            hint = "Your token is invalid, expired, or lacks the [bold]Contents: Read and write[/bold] permission for this repository. Create a new one and run [bold]termux-sync setup[/bold]."
         elif exc.code == 404:
             hint = "The repository or release was not found. Check the repo name in [bold]termux-sync setup[/bold]."
         return f"GitHub returned HTTP {exc.code}", str(exc.reason), hint
@@ -900,9 +900,10 @@ class GitHubStorage:
         if code == 401:
             return UserError(
                 "GitHub rejected the token (bad credentials).",
-                hint="Create a new token with the [bold]repo[/bold] scope at "
-                     "[cyan]https://github.com/settings/tokens[/cyan], then run "
-                     "[bold]termux-sync setup[/bold].",
+                hint="Create a new token at "
+                     "[cyan]https://github.com/settings/personal-access-tokens/new[/cyan] "
+                     "with [bold]Contents: Read and write[/bold] on the backup repository, "
+                     "then run [bold]termux-sync setup[/bold].",
                 title="Invalid GitHub token",
             )
         if code == 403 and "rate limit" in blob:
@@ -914,14 +915,14 @@ class GitHubStorage:
         if code == 403:
             return UserError(
                 msg or "The token is not allowed to do this.",
-                hint="Make sure the token has the [bold]repo[/bold] scope and can write to this repository.",
+                hint="Make sure the token has [bold]Contents: Read and write[/bold] for this repository.",
                 title="GitHub denied access",
             )
         if code == 404:
             return UserError(
                 f"Repository '{self.repo}' was not found, or the token cannot see it.",
                 hint="Check the spelling (owner/repo) in [bold]termux-sync setup[/bold]. "
-                     "For a private repository the token needs the [bold]repo[/bold] scope.",
+                     "For a private repository the token needs [bold]Contents: Read and write[/bold].",
                 title="GitHub repository not found",
             )
         detail = ": ".join(x for x in (msg, extras) if x) or "no details"
@@ -1846,10 +1847,11 @@ def cmd_setup():
         console.print()
         note(
             "[dim]Create a [bold]private repository[/bold] on GitHub and generate a"
-            " Personal Access Token with [white]repo[/white] scope.[/dim]"
+            " [bold]fine-grained[/bold] Personal Access Token for that repository only,"
+            " with [white]Contents: Read and write[/white].[/dim]"
         )
         console.print("  [dim]Token page:[/dim]")
-        console.print("  [white]https://github.com/settings/tokens[/white]", soft_wrap=True)
+        console.print("  [white]https://github.com/settings/personal-access-tokens/new[/white]", soft_wrap=True)
         console.print()
 
         existing_token = cfg.get("github_token", "")

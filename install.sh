@@ -112,12 +112,15 @@ TARBALL_URL=$(echo "$RELEASE_JSON" | python3 -c "
 import sys, json, re
 data = json.load(sys.stdin)
 for a in data.get('assets', []):
-    if re.match(r'termux-sync-v[\d.]+\.tar\.gz$', a['name']):
+    if re.match(r'termux-sync-v[\w.-]+\.tar\.gz$', a['name']):
         print(a['browser_download_url'])
         sys.exit(0)
 print(data.get('tarball_url', ''))
 ")
 [[ -z "$TARBALL_URL" ]] && fail "Could not find release tarball"
+
+SOURCE_TARBALL_URL=$(echo "$RELEASE_JSON" | python3 -c \
+    "import sys,json; print(json.load(sys.stdin).get('tarball_url',''))")
 info "Tarball : $TARBALL_URL"
 
 SHA_URL=$(echo "$RELEASE_JSON" | python3 -c "
@@ -139,22 +142,29 @@ TARBALL="$TMP_DIR/termux-sync.tar.gz"
 curl -fsSL "$TARBALL_URL" -o "$TARBALL" || fail "Failed to download release tarball"
 ok "Tarball downloaded"
 
-if [[ -n "$SHA_URL" ]]; then
+if [[ "$TARBALL_URL" == "$SOURCE_TARBALL_URL" ]]; then
+    warn "Release has no packaged tarball — checksum not applicable to the source tarball"
+elif [[ -n "$SHA_URL" ]]; then
     SHA_FILE="$TMP_DIR/termux-sync.tar.gz.sha256"
-    curl -fsSL "$SHA_URL" -o "$SHA_FILE" 2>/dev/null || true
-    if [[ -f "$SHA_FILE" && -s "$SHA_FILE" ]]; then
-        EXPECTED=$(awk '{print $1}' "$SHA_FILE")
-        ACTUAL=$(sha256sum "$TARBALL" | awk '{print $1}')
-        if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-            printf "\n  ${R}${B}Checksum verification FAILED.${N}\n"
-            printf "  ${R}Expected: %s${N}\n" "$EXPECTED"
-            printf "  ${R}Got:      %s${N}\n\n" "$ACTUAL"
-            exit 1
-        fi
-        ok "SHA256 verified"
-    else
-        warn "SHA256 file empty or unavailable — skipping verification"
+    curl -fsSL "$SHA_URL" -o "$SHA_FILE" 2>/dev/null \
+        || fail "Could not download the SHA256 file. Refusing to install an unverified tarball."
+    if [[ ! -s "$SHA_FILE" ]]; then
+        fail "The SHA256 file is empty. Refusing to install an unverified tarball."
     fi
+    EXPECTED=$(awk 'NF {print $1; exit}' "$SHA_FILE")
+    if [[ ! "$EXPECTED" =~ ^[0-9a-f]{64}$ ]]; then
+        printf "\n  ${R}${B}Malformed SHA256 file.${N}\n\n"
+        printf "  ${R}Got: %s${N}\n\n" "$EXPECTED"
+        exit 1
+    fi
+    ACTUAL=$(sha256sum "$TARBALL" | awk '{print $1}')
+    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+        printf "\n  ${R}${B}Checksum verification FAILED.${N}\n"
+        printf "  ${R}Expected: %s${N}\n" "$EXPECTED"
+        printf "  ${R}Got:      %s${N}\n\n" "$ACTUAL"
+        exit 1
+    fi
+    ok "SHA256 verified"
 else
     warn "No SHA256 asset in release — skipping verification"
 fi

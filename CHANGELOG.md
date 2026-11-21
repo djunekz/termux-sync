@@ -9,6 +9,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Backups no longer contain the GitHub token.** The home archive included `~/.config/termux-sync/config.json`, so every uploaded backup carried the personal access token used to upload it. That folder is now excluded from the home archive.
+- **A manifest entry without a checksum is no longer trusted.** A missing checksum used to be compared against itself, so a tampered archive passed verification. Restore now reports it as failed.
+- **Release asset names are validated before download.** A name that is not a plain file name aborts the restore instead of being written outside the temporary folder.
+- **Pruning only removes folders that contain a backup manifest.** A misconfigured local backup path can no longer delete unrelated directories.
+- **Backup dates and schedule labels are escaped before printing**, so metadata from a shared backup cannot inject terminal markup.
+
+### Changed
+- The installer and `tsctl` now refuse to install when the release advertises a checksum that cannot be downloaded or is malformed. Prerelease tags are recognised, and the source-tarball fallback no longer fails a checksum that belongs to a different file.
+- Documentation now recommends a fine-grained personal access token limited to the backup repository with `Contents: Read and write`.
+
 ---
 
 ## [1.3.8] - 2026-11-19
