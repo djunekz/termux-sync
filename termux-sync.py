@@ -1363,6 +1363,7 @@ def _self_excludes(src: Path) -> list[str]:
         if src.resolve() == Path(TERMUX_FILES).resolve():
             return [".config/termux-sync"]
     except OSError:
+        # The path cannot be resolved, so it cannot be the home directory.
         pass
     return []
 

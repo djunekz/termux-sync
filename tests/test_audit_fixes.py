@@ -368,6 +368,28 @@ def test_self_excludes_covers_the_app_state(monkeypatch, tmp_path):
     assert ts._self_excludes(tmp_path) == []
 
 
+def test_self_excludes_survives_an_unresolvable_path():
+    class Unresolvable:
+        def resolve(self):
+            raise OSError("cannot resolve")
+
+    assert ts._self_excludes(Unresolvable()) == []
+
+
+def test_is_backup_dir_rejects_an_unreadable_manifest(tmp_path, monkeypatch):
+    folder = tmp_path / "b1"
+    folder.mkdir()
+    (folder / "manifest.json").write_text("{not json")
+
+    assert ts.LocalStorage._is_backup_dir(folder) is False
+
+    def boom(path):
+        raise OSError("cannot read")
+
+    monkeypatch.setattr(ts, "read_manifest", boom)
+    assert ts.LocalStorage._is_backup_dir(folder) is False
+
+
 def test_backup_archive_omits_the_token_config(monkeypatch, tmp_path):
     home = tmp_path / "home"
     (home / ".config" / "termux-sync").mkdir(parents=True)
