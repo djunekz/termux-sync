@@ -472,6 +472,15 @@ def install_packages(pkg_list: list[str], console: Console) -> list[str]:
     return failed
 
 
+def _exclude_prefix(pattern: str) -> str:
+    """Wrap an exclude pattern so it can be matched on whole path components."""
+    pat = pattern.strip()
+    while pat.startswith("./"):
+        pat = pat[2:]
+    pat = pat.strip("/")
+    return f"/{pat}/" if pat else ""
+
+
 def create_archive(
     source_path: Path,
     archive_path: Path,
@@ -503,7 +512,7 @@ def create_archive(
     if sink is not None and hasattr(sink, "attach"):
         sink.attach(progress, task, label)
 
-    wrapped_excludes = ["/" + pat.strip("/") + "/" for pat in excludes if pat.strip("/")]
+    wrapped_excludes = [w for w in (_exclude_prefix(p) for p in excludes) if w]
 
     def _filter(tarinfo):
         wrapped_name = "/" + tarinfo.name.strip("/") + "/"

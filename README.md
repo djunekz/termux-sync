@@ -324,6 +324,8 @@ Location: `~/.config/termux-sync/config.json`
 | `github_branch` | `main` | Branch to push backups to |
 | `compression` | `gz` | Compression: `gz` (fast), `bz2` (balanced), `xz` (best) |
 | `exclude_patterns` | *(list)* | Paths excluded from home directory archive |
+
+Patterns are literal paths matched on whole path components, at any depth: `.cache` excludes `~/.cache` but not `~/notes.cache`. There is no wildcard support, so `*.log` matches nothing. A leading `./` is ignored.
 | `max_backups` | `5` | Maximum number of backups to keep before pruning |
 | `encrypt` | `false` | Enable archive encryption (planned feature) |
 
