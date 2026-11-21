@@ -23,7 +23,7 @@ If a fix is possible, the maintainers will prepare a patch and coordinate a disc
 
 ## Token and Credential Handling
 
-termux-sync stores configuration, including GitHub Personal Access Tokens, in `~/.config/termux-sync/config.json`. This file is created with default permissions on your device and is only as secure as your device's filesystem.
+termux-sync stores configuration, including GitHub Personal Access Tokens, in `~/.config/termux-sync/config.json`. This file is created with `0600` permissions (owner read/write only) on your device and is only as secure as your device's filesystem.
 
 Recommendations:
 
@@ -37,6 +37,8 @@ Recommendations:
 ## Backup Security
 
 Backups are stored as plain tar archives. They are not encrypted by default.
+
+The app's own configuration directory, `~/.config/termux-sync`, is excluded from backups. This keeps the stored GitHub token out of the archive that gets uploaded.
 
 If you use GitHub as a storage backend, ensure the repository is private. A public repository will expose your home directory and configuration files to anyone.
 

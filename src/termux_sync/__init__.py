@@ -715,9 +715,18 @@ class LocalStorage:
             dirs = sorted(self.root.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True)
         except PermissionError:
             return
-        dirs = [d for d in dirs if d.is_dir()]
+        dirs = [d for d in dirs if d.is_dir() and self._is_backup_dir(d)]
         for old in dirs[max_keep:]:
             shutil.rmtree(old, ignore_errors=True)
+
+    @staticmethod
+    def _is_backup_dir(path: Path) -> bool:
+        """Only folders this app created (they carry a manifest) may be pruned."""
+        try:
+            manifest = read_manifest(path)
+        except (OSError, ValueError):
+            return False
+        return isinstance(manifest, dict) and "name" in manifest
 
     def delete_backup(self, backup_name: str):
         cleaned = _clean_backup_name(backup_name)
@@ -1153,6 +1162,8 @@ class GitHubStorage:
         for n, asset in enumerate(assets, 1):
             url  = self._asset_url(asset["id"])
             name = asset["name"]
+            if _clean_backup_name(name) != name:
+                raise RuntimeError(f"Unsafe asset name in release: {name!r}")
             out  = dest / name
             tag  = f"{n}/{n_files}"
             shown = re.sub(r"\.tar\.(gz|bz2|xz)", "", name) if is_narrow() else name
@@ -1341,6 +1352,20 @@ def get_storage(cfg: dict):
     return LocalStorage(cfg)
 
 
+def _self_excludes(src: Path) -> list[str]:
+    """Keep this app's own state out of the backup.
+
+    `~/.config/termux-sync` holds the GitHub token and the log, so archiving
+    it would upload the credential used to upload the archive itself.
+    """
+    try:
+        if src.resolve() == Path(TERMUX_FILES).resolve():
+            return [".config/termux-sync"]
+    except OSError:
+        pass
+    return []
+
+
 def _storage_excludes(cfg: dict, src: Path) -> list[str]:
     if cfg.get("storage", "local") != "local":
         return []
@@ -1441,7 +1466,7 @@ def cmd_backup(cfg: dict, label: str = ""):
                 continue
             out_path = tmp_dir / f"{key}.tar.{compression}"
             sink = storage.stream_sink(out_path.name, progress) if streaming else None
-            item_excludes = list(excludes) + _storage_excludes(cfg, src)
+            item_excludes = list(excludes) + _storage_excludes(cfg, src) + _self_excludes(src)
             try:
                 actual_out = create_archive(src, out_path, compression, item_excludes, label_text,
                                             progress, sink=sink)
@@ -1612,7 +1637,8 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
             all_ok = False
             continue
         cs = sha256(archive)
-        ok = cs == info.get("checksum", cs)
+        expected = info.get("checksum")
+        ok = bool(expected) and cs == expected
         icon = status_icon(ok)
         console.print(f"  {icon} {info['archive']}  [dim]{cs[:12]}…[/dim]")
         if not ok:
@@ -1626,7 +1652,7 @@ def cmd_restore(cfg: dict, backup_name: str = ""):
     console.print()
     console.print(Panel(
         f"[dim]Backup  [/dim] [white]{escape(backup_name)}[/white]\n"
-        f"[dim]Date    [/dim] [white]{manifest.get('date', '—')[:19].replace('T', ' ')}[/white]\n"
+        f"[dim]Date    [/dim] [white]{escape(str(manifest.get('date', '—'))[:19].replace('T', ' '))}[/white]\n"
         f"[dim]Packages[/dim] [white]{len(manifest.get('packages', []))}[/white]\n"
         f"[dim]Archives[/dim] [white]{len(manifest.get('files', {}))}[/white]  "
         f"[dim]({human_size(_backup_size(manifest))})[/dim]",
@@ -1722,7 +1748,7 @@ def cmd_list(cfg: dict):
         tbl.add_column("Value", style="bold white")
 
         tbl.add_row("Name",        escape(str(b.get("name", "—"))))
-        tbl.add_row("Date",        b.get("date", "—")[:19].replace("T", " "))
+        tbl.add_row("Date",        escape(str(b.get("date", "—"))[:19].replace("T", " ")))
         tbl.add_row("Label",       escape(_backup_label(b)) or "—")
         tbl.add_row("Packages",    str(len(b.get("packages", []))))
         tbl.add_row("Files",       str(len(b.get("files", {}))))
@@ -1955,7 +1981,7 @@ def cmd_schedule():
         console.print(Panel(
             f"[bold green]✓ Auto-backup scheduled![/bold green]\n\n"
             f"  Time   : [white]{sched['hour']:02d}:{sched['minute']:02d}[/white] daily\n"
-            f"  Label  : [white]{sched['label']}[/white]\n\n"
+            f"  Label  : [white]{escape(str(sched['label']))}[/white]\n\n"
             f"  [dim]Start daemon with:[/dim]  [white]termux-sync daemon &[/white]\n"
             f"  [dim]Or add to Termux:Boot:[/dim]  [white]~/.termux/boot/termux-sync-daemon.sh[/white]",
             border_style="green", padding=(1, 2)
