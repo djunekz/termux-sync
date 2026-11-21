@@ -131,10 +131,12 @@ The wizard will ask you to choose a storage backend and provide any required cre
 ### GitHub private repo (recommended)
 
 1. Create a private GitHub repository, for example `my-termux-backup`
-2. Go to **Settings → Developer Settings → Personal Access Tokens → Tokens (classic)**
-3. Generate a token with the `repo` scope
+2. Go to **Settings → Developer settings → Personal access tokens → Fine-grained tokens**
+3. Grant the token access to that one repository only, with **Contents: Read and write**
 4. Run `termux-sync setup` and select option **3 (GitHub)**
 5. Enter your token and repository name in the format `username/repo`
+
+A fine-grained token scoped to the backup repository is preferred. A classic token with the `repo` scope also works, but it grants read and write access to every repository you own.
 
 ---
 
@@ -317,7 +319,7 @@ Location: `~/.config/termux-sync/config.json`
 | `storage` | `local` | Storage backend: `local`, `gdrive`, or `github` |
 | `local_path` | `~/termux-backups` | Path for local backups |
 | `gdrive_folder_id` | *(empty)* | Google Drive folder ID (leave empty for root) |
-| `github_token` | *(empty)* | GitHub Personal Access Token with `repo` scope |
+| `github_token` | *(empty)* | GitHub Personal Access Token with `Contents: Read and write` on the backup repository |
 | `github_repo` | *(empty)* | Repository in `owner/repo` format |
 | `github_branch` | `main` | Branch to push backups to |
 | `compression` | `gz` | Compression: `gz` (fast), `bz2` (balanced), `xz` (best) |

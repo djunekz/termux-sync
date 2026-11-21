@@ -66,7 +66,7 @@ These files are created with default Termux filesystem permissions. You are resp
 
 ## Recommendations
 
-- Use a GitHub Personal Access Token with the minimum required scope (`repo` only) and set an expiration date.
+- Use a fine-grained GitHub Personal Access Token limited to the backup repository, with the `Contents: Read and write` permission, and set an expiration date.
 - Do not store sensitive credentials in your home directory if you back up to a repository that others have access to, even indirectly.
 - If you use GitHub storage, always use a private repository.
 - Review the contents of your backup archives periodically to confirm that sensitive files are excluded as expected.

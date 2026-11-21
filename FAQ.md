@@ -55,7 +55,7 @@ GitHub private repository is recommended for most users. It is reliable, free fo
 **How do I set up GitHub storage?**
 
 1. Create a private GitHub repository.
-2. Generate a Personal Access Token with the `repo` scope at **Settings → Developer Settings → Personal Access Tokens → Tokens (classic)**.
+2. Generate a fine-grained Personal Access Token at **Settings → Developer settings → Personal access tokens → Fine-grained tokens**, limit it to the backup repository, and give it **Contents: Read and write**.
 3. Run `termux-sync setup` and choose option 3.
 4. Enter your token and repository name in `username/repo` format.
 

@@ -348,3 +348,104 @@ def test_extract_blocks_write_through_existing_symlink_inside_root(tmp_path, con
         ts.extract_archive(archive, prefix, "usr_etc", progress, expected_top="etc")
     assert (prefix / "bin" / "sh").read_text() == "original"
     assert "escapes" in (config_home / "sync.log").read_text()
+
+
+class _SilentProgress:
+    """Minimal Progress stand-in for code paths that only add/update tasks."""
+
+    def add_task(self, *args, **kwargs):
+        return 1
+
+    def update(self, *args, **kwargs):
+        pass
+
+
+def test_self_excludes_covers_the_app_state(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(ts, "TERMUX_FILES", home)
+    assert ts._self_excludes(home) == [".config/termux-sync"]
+    assert ts._self_excludes(tmp_path) == []
+
+
+def test_self_excludes_survives_an_unresolvable_path():
+    class Unresolvable:
+        def resolve(self):
+            raise OSError("cannot resolve")
+
+    assert ts._self_excludes(Unresolvable()) == []
+
+
+def test_is_backup_dir_rejects_an_unreadable_manifest(tmp_path, monkeypatch):
+    folder = tmp_path / "b1"
+    folder.mkdir()
+    (folder / "manifest.json").write_text("{not json")
+
+    assert ts.LocalStorage._is_backup_dir(folder) is False
+
+    def boom(path):
+        raise OSError("cannot read")
+
+    monkeypatch.setattr(ts, "read_manifest", boom)
+    assert ts.LocalStorage._is_backup_dir(folder) is False
+
+
+def test_backup_archive_omits_the_token_config(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    (home / ".config" / "termux-sync").mkdir(parents=True)
+    (home / ".config" / "termux-sync" / "config.json").write_text(
+        '{"github_token": "ghp_secret"}'
+    )
+    (home / "keep.txt").write_text("keep")
+    monkeypatch.setattr(ts, "TERMUX_FILES", home)
+    out = tmp_path / "home.tar.gz"
+
+    ts.create_archive(home, out, "gz", ts._self_excludes(home), "home", _SilentProgress())
+    with tarfile.open(out) as tf:
+        names = tf.getnames()
+    assert "home/keep.txt" in names
+    assert not any(".config/termux-sync" in name for name in names)
+
+
+def test_restore_refuses_manifest_entry_without_checksum(local_cfg, tmp_path, answers, monkeypatch):
+    folder = tmp_path / "backups" / "b1"
+    folder.mkdir(parents=True)
+    (folder / "home.tar.gz").write_bytes(b"data")
+    manifest = {
+        "name": "b1",
+        "date": "2026-01-01T00:00:00",
+        "files": {"home": {"archive": "home.tar.gz", "size": 4}},
+        "packages": [],
+    }
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+
+    extracted = []
+    monkeypatch.setattr(ts, "extract_archive", lambda *a, **k: extracted.append(a))
+    answers(confirm=False)
+    ts.cmd_restore(local_cfg, backup_name="b1")
+    assert extracted == []
+
+
+def test_github_download_rejects_unsafe_asset_names(local_cfg, tmp_path, monkeypatch):
+    storage = ts.GitHubStorage(dict(local_cfg, github_token="t", github_repo="a/b"))
+    release = {"id": 1, "assets": [{"id": 2, "name": "../evil.tar.gz", "size": 1}]}
+    monkeypatch.setattr(storage, "_get_release_by_tag", lambda tag: release)
+
+    with pytest.raises(RuntimeError, match="Unsafe asset name"):
+        storage.download("b1", tmp_path / "out", _SilentProgress())
+
+
+def test_local_delete_old_spares_folders_that_are_not_backups(local_cfg, tmp_path):
+    root = tmp_path / "backups"
+    for index, name in enumerate(["b1", "b2"]):
+        folder = root / name
+        folder.mkdir(parents=True)
+        ts.write_manifest(folder, {"name": name, "date": "2026-01-01T00:00:00"})
+        os.utime(folder, (1000 + index, 1000 + index))
+    stray = root / "notes"
+    stray.mkdir()
+    os.utime(stray, (1, 1))
+
+    ts.LocalStorage(local_cfg).delete_old(1)
+    assert (root / "notes").exists()
+    assert sorted(p.name for p in root.iterdir()) == ["b2", "notes"]
