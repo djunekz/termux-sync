@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.9] - 2026-11-21
+
 ### Fixed
 - **Backups no longer contain the GitHub token.** The home archive included `~/.config/termux-sync/config.json`, so every uploaded backup carried the personal access token used to upload it. That folder is now excluded from the home archive.
 - **A manifest entry without a checksum is no longer trusted.** A missing checksum used to be compared against itself, so a tampered archive passed verification. Restore now reports it as failed.
